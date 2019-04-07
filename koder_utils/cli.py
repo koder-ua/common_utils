@@ -22,12 +22,16 @@ class CMDResult:
     def stdout(self) -> str:
         return self.stdout_b.decode("utf8")
 
+    def check_returncode(self):
+        if self.returncode != 0:
+            raise subprocess.CalledProcessError(self.returncode, self.args, self.stdout_b, self.stderr_b)
+
 
 async def run_proc_timeout(cmd: CmdType,
                            proc: asyncio.subprocess.Process,
-                           timeout: int,
+                           timeout: float,
                            input_data: Optional[bytes],
-                           term_timeout: int) -> CMDResult:
+                           term_timeout: float) -> CMDResult:
 
     done, not_done = await asyncio.wait({proc.communicate(input=input_data)}, timeout=timeout - 2 * term_timeout)
     if not_done:
