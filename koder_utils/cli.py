@@ -1,5 +1,8 @@
 import asyncio
+import json
 import logging
+import os
+import signal
 from pathlib import Path
 import subprocess
 from dataclasses import dataclass
@@ -20,50 +23,18 @@ class CMDResult:
 
     @property
     def stdout(self) -> str:
-        return self.stdout_b.decode("utf8")
+        return self.stdout_b.decode()
 
     def check_returncode(self):
         if self.returncode != 0:
             raise subprocess.CalledProcessError(self.returncode, self.args, self.stdout_b, self.stderr_b)
 
 
-async def run_proc_timeout(cmd: CmdType,
-                           proc: asyncio.subprocess.Process,
-                           timeout: float,
-                           input_data: Optional[bytes],
-                           term_timeout: float) -> CMDResult:
-
-    done, not_done = await asyncio.wait({proc.communicate(input=input_data)}, timeout=timeout - 2 * term_timeout)
-    if not_done:
-        proc.terminate()
-        done, not_done = await asyncio.wait({proc.communicate()}, timeout=term_timeout)
-        if not_done:
-            proc.kill()
-            proc_fut = proc.communicate()
-            done, not_done = await asyncio.wait(proc_fut, timeout=term_timeout)
-
-            if not_done:
-                raise RuntimeError(f"Can't kill process {proc.pid} of {cmd}")
-
-        proc_fut2, = done
-        out2, err2 = await proc_fut2
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out2, stderr=err2)
-
-    proc_fut3, = done
-    out3, err3 = await proc_fut3
-
-    if proc.returncode != 0:
-        raise subprocess.CalledProcessError(returncode=proc.returncode,
-                                            cmd=cmd, output=out3, stderr=err3)
-
-    return CMDResult(cmd, stdout_b=out3, stderr_b=err3, returncode=proc.returncode)
-
-
 async def start_proc(cmd: CmdType,
                      input_data: Union[bytes, None, BinaryIO] = None,
                      merge_err: bool = True,
                      output_to_devnull: bool = False,
-                     env: Dict[str, str] = None) -> Tuple[asyncio.subprocess.Process, Optional[bytes]]:
+                     **kwargs) -> Tuple[asyncio.subprocess.Process, Optional[bytes]]:
 
     if isinstance(input_data, bytes):
         stdin: Any = asyncio.subprocess.PIPE
@@ -87,7 +58,53 @@ async def start_proc(cmd: CmdType,
         func = asyncio.create_subprocess_exec
         cmd = [str(arg) for arg in cmd]
 
-    return (await func(*cmd, stdout=stdout, stderr=stderr, stdin=stdin, env=env)), input_data
+    return (await func(*cmd, stdout=stdout, stderr=stderr, stdin=stdin, **kwargs)), input_data
+
+
+async def run_proc_timeout(cmd: CmdType,
+                           proc: asyncio.subprocess.Process,
+                           timeout: float,
+                           input_data: Optional[bytes],
+                           term_timeout: float,
+                           term_group: int = None) -> CMDResult:
+    assert timeout > 2 * term_timeout
+    proc_task = asyncio.create_task(proc.communicate(input=input_data))
+    done, not_done = await asyncio.wait({proc_task}, timeout=timeout - 2 * term_timeout)
+    if not_done:
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+
+        done, not_done = await asyncio.wait({proc_task}, timeout=term_timeout)
+
+        if not_done:
+            try:
+                if term_group is not None:
+                    os.killpg(term_group, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except ProcessLookupError:
+                pass
+
+            done, not_done = await asyncio.wait({proc_task}, timeout=term_timeout)
+
+            if not_done:
+                raise RuntimeError(f"Can't kill process '{cmd}' with pid {proc.pid}")
+
+        proc_fut2, = done
+        out2, err2 = await proc_fut2
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out2, stderr=err2)
+
+    proc_fut3, = done
+    out3, err3 = await proc_fut3
+
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(returncode=proc.returncode,
+                                            cmd=cmd, output=out3, stderr=err3)
+
+    return CMDResult(cmd, stdout_b=out3, stderr_b=err3, returncode=proc.returncode)
+
 
 
 async def run(cmd: CmdType,
@@ -96,9 +113,9 @@ async def run(cmd: CmdType,
               timeout: float = 60,
               output_to_devnull: bool = False,
               term_timeout: float = 1,
-              env: Dict[str, str] = None) -> CMDResult:
+              **kwargs) -> CMDResult:
 
-    proc, input_data = await start_proc(cmd, input_data, merge_err, output_to_devnull=output_to_devnull, env=env)
+    proc, input_data = await start_proc(cmd, input_data, merge_err, output_to_devnull=output_to_devnull, **kwargs)
     res = await run_proc_timeout(cmd, proc, timeout=timeout, input_data=input_data, term_timeout=term_timeout)
 
     if merge_err:
@@ -109,3 +126,8 @@ async def run(cmd: CmdType,
 
 async def run_stdout(*args, **kwargs) -> str:
     return (await run(*args, **kwargs)).stdout
+
+
+async def run_json(*args, **kwargs) -> Any:
+    return json.loads((await run(*args, **kwargs)).stdout)
+

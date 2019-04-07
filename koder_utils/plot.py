@@ -178,7 +178,7 @@ def get_emb_image(fig: Figure, file_format: str, **opts) -> bytes:
     if file_format == 'svg':
         fig.savefig(bio, format='svg', **opts)
         img_start = "<!-- Created with matplotlib (http://matplotlib.org/) -->"
-        return bio.getvalue().decode("utf8").split(img_start, 1)[1].encode("utf8")
+        return bio.getvalue().decode().split(img_start, 1)[1].encode()
     else:
         fig.savefig(bio, format=file_format, **opts)
         return bio.getvalue()

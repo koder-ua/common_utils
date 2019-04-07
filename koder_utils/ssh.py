@@ -179,7 +179,7 @@ async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:
 #     if paramiko is None:
 #         raise RuntimeError("paramiko module is not available")
 #
-#     with StringIO(key.decode("utf8")) as sio:
+#     with StringIO(key.decode()) as sio:
 #         NODE_KEYS[host_port] = paramiko.RSAKey.from_private_key(sio)  # type: ignore
 #
 #
@@ -227,7 +227,7 @@ async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:
 #                             port=creds.addr.port,
 #                             **banner_timeout_arg)
 #             elif creds.key is not None:
-#                 with StringIO(creds.key.decode("utf8")) as sio:
+#                 with StringIO(creds.key.decode()) as sio:
 #                     ssh.connect(creds.addr.host,
 #                                 username=creds.user,
 #                                 timeout=c_tcp_timeout,
@@ -314,7 +314,7 @@ async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:
 #
 #         err = exc.output
 #         if isinstance(err, bytes):
-#             err = err.decode('utf8')
+#             err = err.decode()
 #
 #         if err:
 #             logger.warning("SSH error for host %s. Cmd: %r. Err is %r. Will retry", host, cmd, err)
@@ -410,9 +410,9 @@ async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:
 #
 # async def get_sw_info(node: IAsyncNode) -> SWInfo:
 #     os_version = tuple(await get_os(node))
-#     kernel_version = (await node.get_file_content('/proc/version')).decode('utf8').strip()
+#     kernel_version = (await node.get_file_content('/proc/version')).decode().strip()
 #     mtab: Dict[str, str] = {}
-#     for line in (await node.get_file_content('/etc/mtab')).decode('utf8').split("\n"):
+#     for line in (await node.get_file_content('/etc/mtab')).decode().split("\n"):
 #         line = line.strip()
 #         if line.startswith('/dev/'):
 #             dev, rest = line.split(" ", 1)

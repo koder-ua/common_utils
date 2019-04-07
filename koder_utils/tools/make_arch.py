@@ -160,7 +160,7 @@ def copy_py_lib(py_name: str, lib_target: Path):
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert result.returncode == 0, result.stdout
 
-    for line in result.stdout.decode("utf8").split("\n"):
+    for line in result.stdout.decode().split("\n"):
         line = line.strip()
         if not line:
             continue

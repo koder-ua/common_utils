@@ -1,12 +1,17 @@
+import contextlib
+import ipaddress
 import os
+import re
+import socket
 import stat
+import subprocess
 import time
 import atexit
 import asyncio
 import tempfile
 from pathlib import Path
 from typing import Iterable, Iterator, Any, Callable, TypeVar, Coroutine, Tuple, List, Union, BinaryIO, \
-    TextIO, Optional, cast
+    TextIO, Optional, cast, Dict
 
 from .cli import run
 
@@ -181,7 +186,7 @@ def which(program: str) -> Optional[str]:
     return None
 
 
-FILES_TO_REMOVE = []  # type: List[str]
+FILES_TO_REMOVE: List[str] = []
 
 
 def tmpnam(remove_after: bool = True, **kwargs) -> str:
@@ -202,3 +207,94 @@ def clean_tmp_files() -> None:
 
 
 atexit.register(clean_tmp_files)
+
+
+def is_ip(data: str) -> bool:
+    try:
+        ipaddress.ip_address(data)
+        return True
+    except ValueError:
+        return False
+
+
+def parse_creds(creds: str) -> Tuple[str, str, str]:
+    """Parse simple credentials format user[:passwd]@host"""
+    user, passwd_host = creds.split(":", 1)
+
+    if '@' not in passwd_host:
+        passwd, host = passwd_host, None
+    else:
+        passwd, host = passwd_host.rsplit('@', 1)
+
+    return user, passwd, host
+
+
+def get_ip_for_target(target_ip: str) -> str:
+    if not is_ip(target_ip):
+        target_ip = socket.gethostbyname(target_ip)
+
+    first_dig = map(int, target_ip.split("."))
+    if first_dig == 127:
+        return '127.0.0.1'
+
+    data = subprocess.check_output(['ip', 'route', 'get', 'to', target_ip]).decode()
+    data_line = data.split("\n")[0].strip()
+
+    rr1 = r'{0} via [.0-9]+ dev (?P<dev>.*?) src (?P<ip>[.0-9]+)$'
+    rr1 = rr1.replace(" ", r'\s+')
+    rr1 = rr1.format(target_ip.replace('.', r'\.'))
+
+    rr2 = r'{0} dev (?P<dev>.*?) src (?P<ip>[.0-9]+)$'
+    rr2 = rr2.replace(" ", r'\s+')
+    rr2 = rr2.format(target_ip.replace('.', r'\.'))
+
+    res1 = re.match(rr1, data_line)
+    res2 = re.match(rr2, data_line)
+
+    if res1 is not None:
+        return res1.group('ip')
+
+    if res2 is not None:
+        return res2.group('ip')
+
+    raise OSError("Can't define interface for {0}".format(target_ip))
+
+
+@contextlib.contextmanager
+def empty_ctx(val: Any = None) -> Iterator[Any]:
+    yield val
+
+
+def to_ip(host_or_ip: str) -> str:
+    # translate hostname to address
+    try:
+        ipaddress.ip_address(host_or_ip)
+        return host_or_ip
+    except ValueError:
+        ip_addr = socket.gethostbyname(host_or_ip)
+        return ip_addr
+
+
+def shape2str(shape: Iterable[int]) -> str:
+    return "*".join(map(str, shape))
+
+
+def str2shape(shape: str) -> Tuple[int, ...]:
+    return tuple(map(int, shape.split('*')))
+
+
+def dict2str_helper(dct: Dict[str, Any], prefix: str) -> List[str]:
+    res = []
+    for k, v in dct.items():
+        assert isinstance(k, str)
+        if isinstance(v, dict):
+            res.extend(dict2str_helper(v, prefix + k + "::"))
+        else:
+            res.append("{}{} {}".format(prefix, k, v))
+    return res
+
+
+def dict2str(dct: Dict[str, Any]) -> str:
+    return "\n".join(dict2str_helper(dct, ""))
+
+

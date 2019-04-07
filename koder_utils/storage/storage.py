@@ -148,11 +148,11 @@ class JsonSerializer(ISerializer):
         try:
             return json.dumps(value).encode('utf8')
         except Exception as exc:
-            raise ValueError("Can't pickle object {!r} to json.") from exc
+            raise ValueError(f"Can't pickle object {value!r} to json.") from exc
 
     def unpack(self, data: bytes) -> Any:
         # TODO: dirty hack for issue with 10.2.x ceph version osd df output
-        return json.loads(data.decode("utf8").replace('"utilization":-nan,"var":-nan', '"utilization":0,"var":0'))
+        return json.loads(data.decode().replace('"utilization":-nan,"var":-nan', '"utilization":0,"var":0'))
 
 
 if yaml:
@@ -162,10 +162,10 @@ if yaml:
             try:
                 return yaml.dump(value, Dumper=Dumper, encoding="utf8", width=160)
             except Exception as exc:
-                raise ValueError("Can't pickle to yaml: {!r}".format(type(value))) from exc
+                raise ValueError(f"Can't pickle to yaml: {type(value)!r}") from exc
 
         def unpack(self, data: bytes) -> Any:
-            return yaml.load(data.decode("utf8"), Loader=Loader)
+            return yaml.load(data.decode(), Loader=Loader)
 
 
     class SAFEYAMLSerializer(ISerializer):
@@ -174,10 +174,10 @@ if yaml:
             try:
                 return yaml.safe_dump(value, encoding="utf8", width=160)
             except Exception as exc:
-                raise ValueError("Can't pickle to yaml: {!r}".format(type(value))) from exc
+                raise ValueError(f"Can't pickle to yaml: {type(value)!r}") from exc
 
         def unpack(self, data: bytes) -> Any:
-            return yaml.safe_load(data.decode('utf8'))
+            return yaml.safe_load(data.decode())
 
     if pyaml:
         class PYAMLSerializer(ISerializer):
@@ -188,10 +188,10 @@ if yaml:
                         return pyaml.dumps(value.raw(), width=160)
                     return pyaml.dumps(value, width=160)
                 except Exception as exc:
-                    raise ValueError("Can't pickle to yaml: {!r}".format(type(value))) from exc
+                    raise ValueError("Can't pickle to yaml: {type(value)!r}") from exc
 
             def unpack(self, data: bytes) -> Any:
-                return yaml.safe_load(data.decode('utf8'))
+                return yaml.safe_load(data.decode())
     else:
         PYAMLSerializer = None
 else:

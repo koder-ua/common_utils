@@ -90,7 +90,7 @@ class ISimpleAsyncNode(metaclass=abc.ABCMeta):
                                term_timeout=term_timeout, env=env, compress=compress)).stdout_b
 
     async def run_str(self, *args, **kwargs) -> str:
-        return (await self.run_bytes(*args, **kwargs)).decode("utf8")
+        return (await self.run_bytes(*args, **kwargs)).decode()
 
     async def run_json(self, *args, **kwargs) -> Dict[str, Any]:
         return json.loads(await self.run_str(*args, **kwargs))
