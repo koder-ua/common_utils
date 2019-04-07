@@ -21,20 +21,34 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-readonly archname="${0}"
-readonly unpack_folder="${1}"
+readonly ARCHNAME="${0}"
+readonly MAYBE_FIRST_OPT="${1:-}"
 
-readonly archbasename=$(basename "${archname}")
-readonly arch_content_pos=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "${archname}")
+function help() {
+    echo "${ARCHNAME} [--list|--help|-h|INSTALLATION_PATH]"
+}
 
-if [[ "${unpack_folder}" == "--list" ]] ; then
-    tail "-n+${arch_content_pos}" "${archname}" | tar --gzip --list
+if [[ "${MAYBE_FIRST_OPT}" == "--help" ]] || [[ "${MAYBE_FIRST_OPT}" == "-h" ]] ; then
+    help
     exit 0
 fi
 
-mkdir --parents "${unpack_folder}"
-tail "-n+${arch_content_pos}" "${archname}" | tar -zx -C "${unpack_folder}"
-tail "-n+${arch_content_pos}" "${archname}" > "${unpack_folder}/distribution.tar.gz"
+if [[ "${MAYBE_FIRST_OPT}" == "" ]] ; then
+    help
+    exit 1
+fi
+
+readonly ARCH_CONTENT_POS=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "${ARCHNAME}")
+
+if [[ "${MAYBE_FIRST_OPT}" == "--list" ]] ; then
+    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar --gzip --list
+    exit 0
+fi
+
+readonly UNPACK_FOLDER="${MAYBE_FIRST_OPT}"
+mkdir --parents "${UNPACK_FOLDER}"
+tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -zx -C "${UNPACK_FOLDER}"
+tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" > "${UNPACK_FOLDER}/distribution.tar.gz"
 exit 0
 
 __ARCHIVE_BELOW__
@@ -208,15 +222,10 @@ def main(argv: List[str]) -> int:
     py_name = f"python{cfg.version}"
 
     requirements = root_dir / cfg.requirements if cfg.requirements else None
-    self_unpack_sh = root_dir / cfg.unpack if cfg.unpack else Path(__file__).absolute().parent.parent / 'unpack.sh'
     libs_dir_name = "libs"
 
     if requirements and not requirements.exists():
         print(f"Can't find requirements at {requirements}")
-        return 1
-
-    if not self_unpack_sh.exists():
-        print(f"Can't find unpack shell file at {self_unpack_sh}")
         return 1
 
     target = Path(tempfile.mkdtemp())

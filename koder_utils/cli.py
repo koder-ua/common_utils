@@ -36,11 +36,14 @@ async def start_proc(cmd: CmdType,
                      output_to_devnull: bool = False,
                      **kwargs) -> Tuple[asyncio.subprocess.Process, Optional[bytes]]:
 
-    if isinstance(input_data, bytes):
+    assert not isinstance(input_data, str), "String not allowed as input data, encode them"
+
+    if isinstance(input_data, (str, bytes)):
         stdin: Any = asyncio.subprocess.PIPE
     elif input_data is None:
         stdin = None
     else:
+        assert hasattr(input_data, 'read'), f"Unknown type {type(input_data)} as input data"
         stdin = input_data
         input_data = None
 
