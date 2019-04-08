@@ -93,23 +93,20 @@ async def run_proc_timeout(cmd: CmdType,
             done, not_done = await asyncio.wait({proc_task}, timeout=term_timeout)
 
             if not_done:
-                raise RuntimeError(f"Can't kill process '{cmd}' with pid {proc.pid}")
+                raise RuntimeError(f"Can't kill process '{cmd}' with pid {proc.pid}, {proc._loop}, >>>>> {asyncio.get_running_loop()}")
 
         proc_fut2, = done
         out2, err2 = await proc_fut2
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out2, stderr=err2)
 
     proc_fut3, = done
-    if proc_fut3 is None:
-        raise ValueError(f"{done}, {not_done}")
-    out3, err3 = await proc_fut3
 
+    out3, err3 = await proc_fut3
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(returncode=proc.returncode,
                                             cmd=cmd, output=out3, stderr=err3)
 
     return CMDResult(cmd, stdout_b=out3, stderr_b=err3, returncode=proc.returncode)
-
 
 
 async def run(cmd: CmdType,
