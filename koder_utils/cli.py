@@ -100,6 +100,8 @@ async def run_proc_timeout(cmd: CmdType,
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out2, stderr=err2)
 
     proc_fut3, = done
+    if proc_fut3 is None:
+        raise ValueError(f"{done}, {not_done}")
     out3, err3 = await proc_fut3
 
     if proc.returncode != 0:

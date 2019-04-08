@@ -12,3 +12,4 @@ from .linux import (ip_and_hostname, parse_ipa4, parse_var_list_file, parse_info
                     parse_sockstat_file, get_host_interfaces)
 
 from .ssh import SSH
+from .storage.storage import make_storage, IStorageNNP

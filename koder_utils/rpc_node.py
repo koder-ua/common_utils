@@ -105,6 +105,9 @@ class IAsyncNode(ISimpleAsyncNode):
     async def read(self, path: AnyPath, compress: bool = False) -> bytes:
         pass
 
+    async def read_str(self, path: AnyPath, compress: bool = True) -> str:
+        return (await self.read(path, compress)).decode()
+
     @abc.abstractmethod
     async def iter_file(self, path: AnyPath, compress: bool = False) -> AsyncIterator[bytes]:
         pass
@@ -214,7 +217,7 @@ class LocalHost(IAsyncNode):
 
 
 async def get_hostname(node: IAsyncNode) -> str:
-    return await node.run_str("hostname")
+    return (await node.run_str("hostname")).strip()
 
 
 async def get_all_ips(node: IAsyncNode) -> List[str]:
@@ -228,5 +231,4 @@ async def get_os(node: IAsyncNode) -> OSRelease:
     dist_type = (await node.run_str("lsb_release -i -s")).lower().strip()
     codename = (await node.run_str("lsb_release -c -s")).lower().strip()
     return OSRelease(dist_type, codename, arch)
-
 
