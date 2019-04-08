@@ -64,6 +64,32 @@ async def start_proc(cmd: CmdType,
     return (await func(*cmd, stdout=stdout, stderr=stderr, stdin=stdin, **kwargs)), input_data
 
 
+async def terminate_proc(proc: asyncio.subprocess.Process, proc_task, term_timeout: float, cmd: CmdType,
+                         term_group: Optional[int]) -> Tuple[Optional[bytes], Optional[bytes]]:
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        pass
+
+    done, _ = await asyncio.wait({proc_task}, timeout=term_timeout)
+
+    if not done:
+        try:
+            if term_group is not None:
+                os.killpg(term_group, signal.SIGKILL)
+            else:
+                proc.kill()
+        except ProcessLookupError:
+            pass
+
+        done, _ = await asyncio.wait({proc_task}, timeout=term_timeout)
+
+        if not done:
+            raise RuntimeError(f"Can't kill process '{cmd}' with pid {proc.pid}")
+
+    return await proc_task
+
+
 async def run_proc_timeout(cmd: CmdType,
                            proc: asyncio.subprocess.Process,
                            timeout: float,
@@ -72,41 +98,18 @@ async def run_proc_timeout(cmd: CmdType,
                            term_group: int = None) -> CMDResult:
     assert timeout > 2 * term_timeout
     proc_task = asyncio.create_task(proc.communicate(input=input_data))
-    done, not_done = await asyncio.wait({proc_task}, timeout=timeout - 2 * term_timeout)
-    if not_done:
-        try:
-            proc.terminate()
-        except ProcessLookupError:
-            pass
+    done, _ = await asyncio.wait({proc_task}, timeout=timeout - 2 * term_timeout)
 
-        done, not_done = await asyncio.wait({proc_task}, timeout=term_timeout)
+    if not done:
+        out, err = await terminate_proc(proc, proc_task, term_timeout, cmd, term_group)
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out, stderr=err)
 
-        if not_done:
-            try:
-                if term_group is not None:
-                    os.killpg(term_group, signal.SIGKILL)
-                else:
-                    proc.kill()
-            except ProcessLookupError:
-                pass
+    out, err = await proc_task
 
-            done, not_done = await asyncio.wait({proc_task}, timeout=term_timeout)
-
-            if not_done:
-                raise RuntimeError(f"Can't kill process '{cmd}' with pid {proc.pid}, {proc._loop}, >>>>> {asyncio.get_running_loop()}")
-
-        proc_fut2, = done
-        out2, err2 = await proc_fut2
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=out2, stderr=err2)
-
-    proc_fut3, = done
-
-    out3, err3 = await proc_fut3
     if proc.returncode != 0:
-        raise subprocess.CalledProcessError(returncode=proc.returncode,
-                                            cmd=cmd, output=out3, stderr=err3)
+        raise subprocess.CalledProcessError(returncode=proc.returncode, cmd=cmd, output=out, stderr=err)
 
-    return CMDResult(cmd, stdout_b=out3, stderr_b=err3, returncode=proc.returncode)
+    return CMDResult(cmd, stdout_b=out, stderr_b=err, returncode=proc.returncode)
 
 
 async def run(cmd: CmdType,
