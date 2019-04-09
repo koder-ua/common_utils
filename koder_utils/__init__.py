@@ -1,4 +1,5 @@
 from .loggers import setup_logging, setup_loggers
+from .converters import b2ssize
 from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 
 
