@@ -4,8 +4,7 @@ import ipaddress
 import subprocess
 from typing import Tuple, Iterable, List
 
-from .cli import run, CMDResult, CmdType
-from .rpc_node import ISimpleAsyncNode, AnyPath
+from . import run, CMDResult, CmdType, ISimpleAsyncNode, AnyPath
 
 
 DEFAULT_OPTS = ("-o", "StrictHostKeyChecking=no",

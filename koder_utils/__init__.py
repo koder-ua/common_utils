@@ -6,10 +6,11 @@ from .utils import (AnyPath, Timeout, AttredDict, flatten, find, flatmap, async_
                     make_secure, make_cert_and_key, read_inventory, open_to_append, open_for_append_or_create,
                     which, tmpnam)
 
-from .rpc_node import OSRelease, ISyncNode, ISimpleAsyncNode, IAsyncNode, LocalHost, get_hostname, get_all_ips, get_os
+from .rpc_node import ISyncNode, ISimpleAsyncNode, IAsyncNode, LocalHost
 
 from .linux import (ip_and_hostname, parse_ipa4, parse_var_list_file, parse_info_file_from_proc, parse_devices_tree,
-                    parse_sockstat_file, get_host_interfaces)
+                    parse_sockstat_file, get_host_interfaces, collect_process_info, ProcInfo, get_hostname,
+                    get_all_ips, get_os, OSRelease)
 
 from .ssh import SSH
 from .storage.storage import make_storage, IStorageNNP

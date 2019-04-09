@@ -1,8 +1,9 @@
 import ipaddress
 import socket
+from dataclasses import dataclass
 from typing import Optional, Tuple, Set, Dict, Any, List
 
-from .rpc_node import IAsyncNode
+from . import IAsyncNode
 
 
 def ip_and_hostname(ip_or_hostname: str) -> Tuple[str, Optional[str]]:
@@ -118,3 +119,81 @@ async def get_host_interfaces(rpc: IAsyncNode) -> List[Tuple[bool, str]]:
 
         res.append(('/devices/virtual/' not in params[10], params[8]))
     return res
+
+
+@dataclass
+class ProcInfo:
+    cmdline: str
+    fd_count: int
+    socket_stats_v4: Optional[Dict]
+    socket_stats_v6: Optional[Dict]
+    status_raw: str
+    status: Dict[str, str]
+    th_count: int
+    io: Dict[str, str]
+    memmap: List[Tuple[str, str, str]]
+    sched_raw: str
+    sched: Dict[str, str]
+    stat: str
+
+
+async def collect_process_info(conn: IAsyncNode, pid: int) -> ProcInfo:
+    fpath = f"/proc/{pid}/net/sockstat"
+    socket_stats_v4 = parse_sockstat_file(await conn.read_str(fpath))
+
+    fpath = f"/proc/{pid}/net/sockstat6"
+    socket_stats_v6 = parse_sockstat_file(await conn.read_str(fpath))
+
+    # memmap
+    mem_map_str = await conn.read_str(f"/proc/{pid}/maps", compress=True)
+    memmap: List[Tuple[str, str, str]] = []
+    for ln in mem_map_str.strip().split("\n"):
+        mem_range, access, offset, dev, inode, *pathname = ln.split()
+        memmap.append((mem_range, access, " ".join(pathname)))
+
+    proc_stat = await conn.read_str(f"/proc/{pid}/status")
+    sched_raw = await conn.read_str(f"/proc/{pid}/sched")
+    try:
+        data = "\n".join(sched_raw.strip().split("\n")[2:])
+        sched = parse_info_file_from_proc(data, ignore_err=True)
+    except:
+        sched = {}
+
+    return ProcInfo(
+        cmdline=await conn.read_str(f"/proc/{pid}/cmdline"),
+        fd_count=len(list(await conn.iterdir(f"/proc/{pid}/fd"))),
+        socket_stats_v4=socket_stats_v4,
+        socket_stats_v6=socket_stats_v6,
+        status_raw=proc_stat,
+        status=parse_info_file_from_proc(proc_stat),
+        th_count=int(proc_stat.split('Threads:')[1].split()[0]),
+        io=parse_info_file_from_proc(await conn.read_str(f"/proc/{pid}/io")),
+        memmap=memmap,
+        sched_raw=sched_raw,
+        sched=sched,
+        stat=await conn.read_str(f"/proc/{pid}/stat")
+    )
+
+
+async def get_hostname(node: IAsyncNode) -> str:
+    return (await node.run_str("hostname")).strip()
+
+
+async def get_all_ips(node: IAsyncNode) -> List[str]:
+    return (await node.run_str("hostname -I")).split()
+
+
+@dataclass
+class OSRelease:
+    distro: str
+    release: str
+    arch: str
+
+
+async def get_os(node: IAsyncNode) -> OSRelease:
+    """return os type, release and architecture for node.
+    """
+    arch = await node.run_str("arch")
+    dist_type = (await node.run_str("lsb_release -i -s")).lower().strip()
+    codename = (await node.run_str("lsb_release -c -s")).lower().strip()
+    return OSRelease(dist_type, codename, arch)

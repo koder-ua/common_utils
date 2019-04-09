@@ -1,22 +1,12 @@
 import abc
-import errno
 import json
 import os
 import shutil
 import tempfile
 from pathlib import Path
-from dataclasses import dataclass
-from typing import Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable, Optional, Iterator
+from typing import Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable
 
-from .utils import AnyPath
-from .cli import CmdType, CMDResult, run
-
-
-@dataclass
-class OSRelease:
-    distro: str
-    release: str
-    arch: str
+from . import AnyPath, CmdType, CMDResult, run
 
 
 class ISyncNode(metaclass=abc.ABCMeta):
@@ -214,21 +204,3 @@ class LocalHost(IAsyncNode):
 
     async def __aexit__(self, x, y, z) -> bool:
         return False
-
-
-async def get_hostname(node: IAsyncNode) -> str:
-    return (await node.run_str("hostname")).strip()
-
-
-async def get_all_ips(node: IAsyncNode) -> List[str]:
-    return (await node.run_str("hostname -I")).split()
-
-
-async def get_os(node: IAsyncNode) -> OSRelease:
-    """return os type, release and architecture for node.
-    """
-    arch = await node.run_str("arch")
-    dist_type = (await node.run_str("lsb_release -i -s")).lower().strip()
-    codename = (await node.run_str("lsb_release -c -s")).lower().strip()
-    return OSRelease(dist_type, codename, arch)
-

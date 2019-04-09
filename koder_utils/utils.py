@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Any, Callable, TypeVar, Coroutine, Tuple, List, Union, BinaryIO, \
     TextIO, Optional, cast, Dict
 
-from .cli import run
+from . import run
 
 
 AnyPath = Union[str, Path]
