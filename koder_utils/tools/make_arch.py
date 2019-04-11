@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import configparser
 import sys
 import stat
 import shutil
@@ -6,14 +7,15 @@ import hashlib
 import tempfile
 import argparse
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Any, Set, Dict
+from typing import List, Any, Optional
 from distutils.spawn import find_executable
 
 
-EXT_TO_REMOVE = {".c", ".pyi", ".h", '.cpp', '.hpp', '.dist-info', '.pyx', '.pxd'}
-modules_to_remove = ['ensurepip', 'lib2to3', 'venv', 'tkinter']
+EXT_TO_REMOVE_DEFAULT = "*.c *.pyi *.h *.cpp *.hpp *.dist-info *.pyx *.pxd"
+MODULES_TO_REMOVE_DEFAULT = "ensurepip lib2to3 venv tkinter"
+TRUE_VALS = {'True', 'true', 'yes', 'y', 't'}
 
 
 unpacker_script = """#!/usr/bin/env bash
@@ -22,34 +24,40 @@ set -o pipefail
 set -o nounset
 
 readonly ARCHNAME="${0}"
-readonly MAYBE_FIRST_OPT="${1:-}"
+readonly CMD="${1:-}"
 
 function help() {
-    echo "${ARCHNAME} [--list|--help|-h|INSTALLATION_PATH]"
+    echo "${ARCHNAME} --list|--help|-h|--install [INSTALLATION_PATH(%DEFPATH%)]"
 }
 
-if [[ "${MAYBE_FIRST_OPT}" == "--help" ]] || [[ "${MAYBE_FIRST_OPT}" == "-h" ]] ; then
+if [[ "${CMD}" == "--help" ]] || [[ "${CMD}" == "-h" ]] ; then
     help
     exit 0
-fi
-
-if [[ "${MAYBE_FIRST_OPT}" == "" ]] ; then
-    help
-    exit 1
 fi
 
 readonly ARCH_CONTENT_POS=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "${ARCHNAME}")
 
-if [[ "${MAYBE_FIRST_OPT}" == "--list" ]] ; then
+if [[ "${CMD}" == "--list" ]] ; then
     tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar --gzip --list
     exit 0
 fi
 
-readonly UNPACK_FOLDER="${MAYBE_FIRST_OPT}"
-mkdir --parents "${UNPACK_FOLDER}"
-tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -zx -C "${UNPACK_FOLDER}"
-tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" > "${UNPACK_FOLDER}/distribution.tar.gz"
-exit 0
+if [[ "${CMD}" == "--install" ]] ; then
+    readonly INSTALL_PATH="${2:-%DEFPATH%}"
+
+    if [[ "${INSTALL_PATH}" == "" ]] ; then
+        help
+        exit 1
+    fi
+
+    mkdir --parents "${INSTALL_PATH}"
+    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -zx -C "${INSTALL_PATH}"
+    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" > "${INSTALL_PATH}/distribution.tar.gz"
+    exit 0
+fi
+
+help
+exit 1
 
 __ARCHIVE_BELOW__
 """
@@ -58,75 +66,41 @@ __ARCHIVE_BELOW__
 @dataclass
 class ArchConfig:
     sources: List[str]
-    remove_files: List[str] = field(default_factory=lambda: EXT_TO_REMOVE.copy())
-    requirements: str = ""
-    version: str = f"{sys.version_info.major}.{sys.version_info.minor}"
-    unpack: str = ""
-    remove_modules: List[str] = field(default_factory=lambda: modules_to_remove[:])
-    remove_pycache: bool = True
-    remove_config: bool = True
+    remove_ext: List[str]
+    requirements: str
+    version: str
+    remove_modules: List[str]
+    remove_pycache: bool
+    remove_config_folder: bool
+    path: Optional[Path]
+    postinstall_help: Optional[str]
 
 
 def load_config(path: Path) -> ArchConfig:
-    attrs: Dict[str, Any] = {}
-    curr_line = ""
+    cfg = configparser.ConfigParser()
+    cfg.read_file(path.open())
 
-    for idx, line in enumerate(path.open()):
-        if '#' in line:
-            line = line.split("#", 1)[0]
+    pkg = cfg['package']
+    deploy = cfg['deploy']
 
-        line = line.strip()
-
-        if line == '':
-            continue
-
-        if line.endswith('\\'):
-            curr_line += line[:-1] + " "
-            continue
-        else:
-            curr_line += line
-
-        if '=' not in curr_line:
-            raise ValueError(f"Syntax error in line {idx} in file {path}. '=' expected in line {curr_line}")
-
-        curr_line = curr_line.strip()
-
-        var, val = curr_line.split("=", 1)
-        var = var.strip()
-        if var in {'sources', 'remove_files', 'remove_modules'}:
-            attrs[var.strip()] = val.split()
-        elif var in {'requirements', 'unpack', 'version'}:
-            attrs[var.strip()] = val.strip()
-        elif var in {'remove_pycache', 'remove_config'}:
-            val = val.strip()
-            if val not in ('True', 'False'):
-                raise ValueError(f"Syntax error at line {idx} in file {path}. " +
-                                 f"Value of {var} can only be 'True' or 'False', not {val}")
-            attrs[var] = val == 'True'
-        else:
-            raise ValueError(f"Syntax error in line {idx} in file {path}. Unknown key {var!r}")
-
-        curr_line = ""
-
-    if curr_line != '':
-            raise ValueError(f"Syntax error in file {path}. Extra data at the end ('\\' in the last line?)")
-
-    return ArchConfig(**attrs)
+    return ArchConfig(
+        sources=pkg['sources'].split(),
+        remove_ext=pkg.get('remove_ext', EXT_TO_REMOVE_DEFAULT).split(),
+        requirements=pkg.get('requirements', 'requirements.txt'),
+        version=pkg.get('version', f"{sys.version_info.major}.{sys.version_info.minor}"),
+        remove_modules=pkg.get('remove_modules', MODULES_TO_REMOVE_DEFAULT).split(),
+        remove_pycache=pkg.get('', 'True') in TRUE_VALS,
+        remove_config_folder=pkg.get('remove_config_folder', 'True') in TRUE_VALS,
+        path=deploy.get('path', None),
+        postinstall_help=pkg.get('postinstall_help', None)
+    )
 
 
-def install_deps(target: Path, py_name: str, requirements: Path, libs_dir_name: str):
+def install_deps(target: Path, py_name: str, requirements: Path, libs_dir_name: str) -> None:
     tempo_libs = target / 'tmp_libs'
     tempo_libs.mkdir(parents=True, exist_ok=True)
     cmd = f"{py_name} -m pip install --no-compile --ignore-installed --prefix {tempo_libs} -r {requirements}"
     subprocess.check_call(cmd, shell=True)
-
-    for fname in list(tempo_libs.rglob("*")):
-        if fname.suffix in EXT_TO_REMOVE:
-            if fname.exists():
-                if fname.is_dir():
-                    shutil.rmtree(fname, ignore_errors=True)
-                else:
-                    fname.unlink()
 
     libs_target = target / libs_dir_name
     site_packages = tempo_libs / 'lib' / py_name / 'site-packages'
@@ -138,7 +112,19 @@ def install_deps(target: Path, py_name: str, requirements: Path, libs_dir_name: 
     shutil.rmtree(tempo_libs, ignore_errors=True)
 
 
-def copy_files(root_dir: Path, target: Path, patterns: List[str]):
+def remove_files(root_dir: Path, ext_to_remove: List[str]) -> None:
+    for fname in list(root_dir.rglob("*")):
+        if fname.suffix in ext_to_remove:
+            try:
+                if fname.is_dir():
+                    shutil.rmtree(fname, ignore_errors=True)
+                else:
+                    fname.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def copy_files(root_dir: Path, target: Path, patterns: List[str]) -> None:
     copy_anything = False
     for pattern in patterns:
         names = list(root_dir.glob(pattern))
@@ -193,7 +179,7 @@ def clear_lib(lib_target: Path, cfg: ArchConfig):
         if tgt.is_dir():
             shutil.rmtree(tgt)
 
-    if cfg.remove_config:
+    if cfg.remove_config_folder:
         for itemname in lib_target.iterdir():
             if itemname.name.startswith("config-") and itemname.is_dir():
                 shutil.rmtree(itemname)
@@ -202,6 +188,18 @@ def clear_lib(lib_target: Path, cfg: ArchConfig):
         for pycache_name in lib_target.rglob("__pycache__"):
             if pycache_name.is_dir():
                 shutil.rmtree(pycache_name)
+
+
+def get_hash(path: Path) -> str:
+    hashobj = hashlib.md5()
+    with path.open("rb") as target_fd:
+        while True:
+            data = target_fd.read(2 ** 20)
+            if not data:
+                break
+            hashobj.update(data)
+
+    return hashobj.hexdigest()
 
 
 def parse_arge(argv: List[str]) -> Any:
@@ -217,7 +215,7 @@ def parse_arge(argv: List[str]) -> Any:
 def main(argv: List[str]) -> int:
     opts = parse_arge(argv)
     root_dir = Path(opts.base_folder).absolute()
-    config = opts.config if opts.config else root_dir / 'arch_config.txt'
+    config = opts.config if opts.config else root_dir / 'arch_config.cfg'
     cfg = load_config(Path(config))
     py_name = f"python{cfg.version}"
 
@@ -261,21 +259,14 @@ def main(argv: List[str]) -> int:
 
     with arch_target.open("wb") as target_fd:
         with temp_arch_target.open("rb") as source_arch:
-            target_fd.write(unpacker_script.encode('ascii'))
+            def_path = cfg.path if cfg.path else ""
+            target_fd.write(unpacker_script.replace("%DEFPATH%", def_path).encode('ascii'))
             shutil.copyfileobj(source_arch, target_fd, length=2 ** 20)
-
-    hashobj = hashlib.md5()
-    with arch_target.open("rb") as target_fd:
-        while True:
-            data = target_fd.read(2 ** 20)
-            if not data:
-                break
-            hashobj.update(data)
 
     temp_arch_target.unlink()
     shutil.rmtree(str(target))
 
-    print(f"Results stored into {arch_target}. Size = {arch_target.stat().st_size} bytes. MD5 {hashobj.hexdigest()}")
+    print(f"Results stored into {arch_target}. Size = {arch_target.stat().st_size} bytes. MD5 {get_hash(arch_target)}")
 
     return 0
 

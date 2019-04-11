@@ -243,7 +243,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
             async with self.conn_freed[conn_addr]:
                 await self.conn_freed[conn_addr].wait()
 
-    def release_conn(self, conn_addr: str, conn: T) -> None:
+    async def release_conn(self, conn_addr: str, conn: T) -> None:
         assert self.opened, "Pool is not opened"
         self.free_conn[conn_addr].append(conn)
 
