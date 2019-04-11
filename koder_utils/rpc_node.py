@@ -279,7 +279,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
         try:
             yield conn
         finally:
-            self.release_conn(conn_addr, conn)
+            await self.release_conn(conn_addr, conn)
 
 
 R = TypeVar('R')
@@ -304,4 +304,4 @@ async def rpc_map(pool: BaseConnectionPool[R],
             yield hostname, res
     finally:
         for hostname, conn in conns.items():
-            pool.release_conn(hostname, conn)
+            await pool.release_conn(hostname, conn)
