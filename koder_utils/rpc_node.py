@@ -1,10 +1,13 @@
 import abc
+import asyncio
 import json
 import os
 import shutil
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable
+from typing import Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable, Generic, TypeVar, Callable, Coroutine, \
+    AsyncIterable, Tuple
 
 from . import AnyPath, CmdType, CMDResult, run
 
@@ -204,3 +207,101 @@ class LocalHost(IAsyncNode):
 
     async def __aexit__(self, x, y, z) -> bool:
         return False
+
+
+T = TypeVar('T')
+
+
+class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
+    def __init__(self, max_conn_per_node: int = None) -> None:
+        assert max_conn_per_node >= 1, f"max_conn_per_node(={max_conn_per_node}) must be >= 1"
+        self.free_conn: Dict[str, List[T]] = {}
+        self.conn_per_node: Dict[str, int] = {}
+        self.conn_freed: Dict[str, asyncio.Condition] = {}
+        self.max_conn_per_node = max_conn_per_node
+        self.opened = False
+
+    async def get_conn(self, conn_addr: str) -> T:
+        assert self.opened, "Pool is not opened"
+        if conn_addr not in self.conn_freed:
+            self.conn_freed[conn_addr] = asyncio.Condition()
+
+        while True:
+            free_cons = self.free_conn.setdefault(conn_addr, [])
+            if free_cons:
+                return free_cons.pop()
+
+            if self.conn_per_node.setdefault(conn_addr, 0) < self.max_conn_per_node:
+                self.conn_per_node[conn_addr] += 1
+
+                try:
+                    return await self._rpc_connect(conn_addr)
+                except Exception:
+                    self.conn_per_node[conn_addr] -= 1
+                    raise
+
+            async with self.conn_freed[conn_addr]:
+                await self.conn_freed[conn_addr].wait()
+
+    def release_conn(self, conn_addr: str, conn: T) -> None:
+        assert self.opened, "Pool is not opened"
+        self.free_conn[conn_addr].append(conn)
+
+        async with self.conn_freed[conn_addr]:
+            await self.conn_freed[conn_addr].notify()
+
+    @abc.abstractmethod
+    async def _rpc_connect(self, conn_addr: str) -> T:
+        pass
+
+    @abc.abstractmethod
+    async def _rpc_disconnect(self, conn: T) -> None:
+        pass
+
+    async def __aenter__(self) -> 'BaseConnectionPool[T]':
+        assert not self.opened, "Pool already opened"
+        self.opened = True
+        return self
+
+    async def __aexit__(self, x, y, z) -> None:
+        assert self.opened, "Pool is not opened"
+        for addr, conns in self.free_conn.items():
+            assert len(conns) == self.conn_per_node[addr]
+            for conn in conns:
+                await self._rpc_disconnect(conn)
+            self.conn_per_node[addr] = 0
+        self.free_conn = {}
+        self.opened = False
+
+    @asynccontextmanager
+    async def connection(self, conn_addr: str) -> AsyncIterator[T]:
+        conn = await self.get_conn(conn_addr)
+        try:
+            yield conn
+        finally:
+            self.release_conn(conn_addr, conn)
+
+
+R = TypeVar('R')
+V = TypeVar('V')
+
+
+async def rpc_map(pool: BaseConnectionPool[R],
+                  func: Callable[..., Coroutine[Any, Any, V]],
+                  hostnames: List[str],
+                  **kwargs) -> AsyncIterable[Tuple[str, Union[Exception, V]]]:
+
+    conns: Dict[str, R] = {}
+    coros: List[Coroutine[Any, Any, V]] = []
+
+    try:
+        for hostname in hostnames:
+            conn = await pool.get_conn(hostname)
+            conns[hostname] = conn
+            coros.append(func(conn, hostname, **kwargs))
+
+        for hostname, res in zip(hostnames, await asyncio.gather(*coros, return_exceptions=True)):
+            yield hostname, res
+    finally:
+        for hostname, conn in conns.items():
+            pool.release_conn(hostname, conn)

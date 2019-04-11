@@ -1,4 +1,5 @@
 import ipaddress
+import re
 import socket
 from dataclasses import dataclass
 from typing import Optional, Tuple, Set, Dict, Any, List
@@ -197,3 +198,10 @@ async def get_os(node: IAsyncNode) -> OSRelease:
     dist_type = (await node.run_str("lsb_release -i -s")).lower().strip()
     codename = (await node.run_str("lsb_release -c -s")).lower().strip()
     return OSRelease(dist_type, codename, arch)
+
+
+SANE_FILE_NAME_RE = re.compile(r"[a-zA-Z.0-9_-]*$")
+
+
+def check_filename_is_sane(fname: str) -> bool:
+    return SANE_FILE_NAME_RE.match(fname) is not None

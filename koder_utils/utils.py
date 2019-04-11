@@ -67,6 +67,16 @@ class AttredDict(dict):
             raise AttributeError(name)
 
 
+class RAttredDict(dict):
+    def __getattr__(self, name: str) -> Any:
+        try:
+            if hasattr(self[name], '__getitem__'):
+                return self.__class__(self[name])
+            return self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
 def flatten(data: Iterable[Any]) -> List[Any]:
     res = []
     for i in data:
