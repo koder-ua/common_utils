@@ -248,7 +248,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
         self.free_conn[conn_addr].append(conn)
 
         async with self.conn_freed[conn_addr]:
-            await self.conn_freed[conn_addr].notify()
+            self.conn_freed[conn_addr].notify()
 
     @abc.abstractmethod
     async def _rpc_connect(self, conn_addr: str) -> T:
