@@ -11,7 +11,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from typing import Iterable, Iterator, Any, Callable, TypeVar, Coroutine, Tuple, List, Union, BinaryIO, \
-    TextIO, Optional, cast, Dict
+    TextIO, Optional, cast, Dict, Mapping
 
 from . import run
 
@@ -67,14 +67,17 @@ class AttredDict(dict):
             raise AttributeError(name)
 
 
-class RAttredDict(dict):
+class RAttredDict:
+    def __init__(self, val: Mapping[str, Any]):
+        self.__val = val
+
     def __getattr__(self, name: str) -> Any:
         try:
-            if hasattr(self[name], '__getitem__'):
-                return self.__class__(self[name])
-            return self[name]
+            vl = self.__val[name]
+            is_dict_like = hasattr(vl, '__getitem__') and not isinstance(vl, (str, bytes))
+            return self.__class__(vl) if is_dict_like else vl
         except KeyError:
-            raise AttributeError(name)
+            raise AttributeError(f"No {name} key exists, only {list(self.__val.keys())}") from None
 
 
 def flatten(data: Iterable[Any]) -> List[Any]:
