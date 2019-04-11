@@ -272,6 +272,8 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
             self.conn_per_node[addr] = 0
         self.free_conn = {}
         self.opened = False
+        self.conn_per_node = {}
+        self.conn_freed = {}
 
     @asynccontextmanager
     async def connection(self, conn_addr: str) -> AsyncIterator[T]:
