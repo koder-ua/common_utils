@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import List, Any, Optional
 from distutils.spawn import find_executable
 
+from .. import b2ssize
+
 
 EXT_TO_REMOVE_DEFAULT = "*.c *.pyi *.h *.cpp *.hpp *.dist-info *.pyx *.pxd"
 MODULES_TO_REMOVE_DEFAULT = "ensurepip lib2to3 venv tkinter"
@@ -96,19 +98,18 @@ def load_config(path: Path) -> ArchConfig:
     )
 
 
-def install_deps(target: Path, py_name: str, requirements: Path, libs_dir_name: str) -> None:
-    tempo_libs = target / 'tmp_libs'
-    tempo_libs.mkdir(parents=True, exist_ok=True)
-    cmd = f"{py_name} -m pip install --no-compile --ignore-installed --prefix {tempo_libs} -r {requirements}"
+def install_deps(target: Path, py_name: str, requirements: Path) -> None:
+    tempo_libs = Path(tempfile.mkdtemp())
+    opts = "--no-warn-script-location --no-compile --ignore-installed"
+    cmd = f"{py_name} -m pip install {opts} --prefix {tempo_libs} -r {requirements}"
     subprocess.check_call(cmd, shell=True)
 
-    libs_target = target / libs_dir_name
     site_packages = tempo_libs / 'lib' / py_name / 'site-packages'
     if not site_packages.exists():
         print("No libs installed by pip. If project has no requirements - remove requirements = XXX line from config")
         exit(1)
 
-    site_packages.rename(libs_target)
+    site_packages.rename(target)
     shutil.rmtree(tempo_libs, ignore_errors=True)
 
 
@@ -220,7 +221,6 @@ def main(argv: List[str]) -> int:
     py_name = f"python{cfg.version}"
 
     requirements = root_dir / cfg.requirements if cfg.requirements else None
-    libs_dir_name = "libs"
 
     if requirements and not requirements.exists():
         print(f"Can't find requirements at {requirements}")
@@ -232,9 +232,6 @@ def main(argv: List[str]) -> int:
 
     copy_files(root_dir, target, cfg.sources)
 
-    if requirements:
-        install_deps(target, py_name, requirements, libs_dir_name)
-
     if opts.standalone:
         standalone_root = target / 'python'
         standalone_root.mkdir(parents=True, exist_ok=True)
@@ -243,6 +240,11 @@ def main(argv: List[str]) -> int:
         copy_py_binary(py_name, standalone_root / py_name)
         copy_py_lib(py_name, standalone_stdlib)
         clear_lib(standalone_stdlib, cfg)
+
+        if requirements:
+            install_deps(target / 'python' / 'lib' / py_name / 'dist-packages', py_name, requirements)
+    elif requirements:
+        install_deps(target / 'libs' , py_name, requirements)
 
     if cfg.remove_pycache:
         for pycache_name in target.rglob("__pycache__"):
@@ -266,7 +268,8 @@ def main(argv: List[str]) -> int:
     temp_arch_target.unlink()
     shutil.rmtree(str(target))
 
-    print(f"Results stored into {arch_target}. Size = {arch_target.stat().st_size} bytes. MD5 {get_hash(arch_target)}")
+    ssize = b2ssize(arch_target.stat().st_size)
+    print(f"Results stored into {arch_target}. Size = {ssize}B. MD5 = {get_hash(arch_target)}")
 
     return 0
 
