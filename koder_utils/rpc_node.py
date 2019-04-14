@@ -1,13 +1,13 @@
-import abc
-import asyncio
-import json
 import os
+import abc
+import json
 import shutil
+import asyncio
 import tempfile
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable, Generic, TypeVar, Callable, Coroutine, \
-    AsyncIterable, Tuple
+from contextlib import asynccontextmanager
+from typing import (Any, Union, BinaryIO, Dict, AsyncIterator, List, Iterable, Generic, TypeVar, Callable, Coroutine,
+                    AsyncIterable, Tuple)
 
 from . import AnyPath, CmdType, CMDResult, run
 
@@ -51,7 +51,11 @@ class ISyncNode(metaclass=abc.ABCMeta):
     def disconnect(self) -> None:
         pass
 
+    def connect(self) -> None:
+        pass
+
     def __enter__(self) -> 'ISyncNode':
+        self.connect()
         return self
 
     def __exit__(self, x, y, z) -> bool:
@@ -59,7 +63,31 @@ class ISyncNode(metaclass=abc.ABCMeta):
         return False
 
 
-class ISimpleAsyncNode(metaclass=abc.ABCMeta):
+SelfTp = TypeVar('SelfTp', bound='ICloseOnExit')
+
+
+class ICloseOnExit(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    async def disconnect(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def connect(self) -> None:
+        pass
+
+    async def __aenter__(self: SelfTp) -> SelfTp:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, x, y, z) -> bool:
+        await self.disconnect()
+        return False
+
+    def __enter__(self) -> None:
+        raise ValueError("User 'async with' instead")
+
+
+class ISimpleAsyncNode(ICloseOnExit):
     """Remote node interface"""
     conn_addr: str
     conn: Any
@@ -93,7 +121,7 @@ class ISimpleAsyncNode(metaclass=abc.ABCMeta):
         pass
 
 
-class IAsyncNode(ISimpleAsyncNode):
+class IAsyncNode(ICloseOnExit):
     @abc.abstractmethod
     async def read(self, path: AnyPath, compress: bool = False) -> bytes:
         pass
@@ -120,18 +148,6 @@ class IAsyncNode(ISimpleAsyncNode):
     @abc.abstractmethod
     async def iterdir(self, path: AnyPath) -> Iterable[Path]:
         pass
-
-    @abc.abstractmethod
-    async def disconnect(self) -> None:
-        pass
-
-    @abc.abstractmethod
-    async def __aenter__(self) -> 'IAsyncNode':
-        pass
-
-    async def __aexit__(self, x, y, z) -> bool:
-        await self.disconnect()
-        return False
 
     async def copy(self, local_path: AnyPath, remote_path: AnyPath, compress: bool = False):
         await self.write(remote_path, open(local_path, 'rb'), compress=compress)
@@ -202,26 +218,23 @@ class LocalHost(IAsyncNode):
     async def disconnect(self) -> None:
         pass
 
-    async def __aenter__(self) -> 'IAsyncNode':
-        return self
-
-    async def __aexit__(self, x, y, z) -> bool:
-        return False
+    async def connect(self) -> None:
+        pass
 
 
-T = TypeVar('T')
+ConnTp = TypeVar('ConnTp')
 
 
-class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
+class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
     def __init__(self, max_conn_per_node: int = None) -> None:
         assert max_conn_per_node >= 1, f"max_conn_per_node(={max_conn_per_node}) must be >= 1"
-        self.free_conn: Dict[str, List[T]] = {}
+        self.free_conn: Dict[str, List[ConnTp]] = {}
         self.conn_per_node: Dict[str, int] = {}
         self.conn_freed: Dict[str, asyncio.Condition] = {}
         self.max_conn_per_node = max_conn_per_node
         self.opened = False
 
-    async def get_conn(self, conn_addr: str) -> T:
+    async def get_conn(self, conn_addr: str) -> ConnTp:
         assert self.opened, "Pool is not opened"
         if conn_addr not in self.conn_freed:
             self.conn_freed[conn_addr] = asyncio.Condition()
@@ -235,7 +248,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
                 self.conn_per_node[conn_addr] += 1
 
                 try:
-                    return await self._rpc_connect(conn_addr)
+                    return await self.rpc_connect(conn_addr)
                 except Exception:
                     self.conn_per_node[conn_addr] -= 1
                     raise
@@ -243,7 +256,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
             async with self.conn_freed[conn_addr]:
                 await self.conn_freed[conn_addr].wait()
 
-    async def release_conn(self, conn_addr: str, conn: T) -> None:
+    async def release_conn(self, conn_addr: str, conn: ConnTp) -> None:
         assert self.opened, "Pool is not opened"
         self.free_conn[conn_addr].append(conn)
 
@@ -251,24 +264,23 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
             self.conn_freed[conn_addr].notify()
 
     @abc.abstractmethod
-    async def _rpc_connect(self, conn_addr: str) -> T:
+    async def rpc_connect(self, conn_addr: str) -> ConnTp:
         pass
 
     @abc.abstractmethod
-    async def _rpc_disconnect(self, conn: T) -> None:
+    async def rpc_disconnect(self, conn: ConnTp) -> None:
         pass
 
-    async def __aenter__(self) -> 'BaseConnectionPool[T]':
+    async def connect(self) -> None:
         assert not self.opened, "Pool already opened"
         self.opened = True
-        return self
 
-    async def __aexit__(self, x, y, z) -> None:
+    async def disconnect(self) -> None:
         assert self.opened, "Pool is not opened"
         for addr, conns in self.free_conn.items():
             assert len(conns) == self.conn_per_node[addr]
             for conn in conns:
-                await self._rpc_disconnect(conn)
+                await self.rpc_disconnect(conn)
             self.conn_per_node[addr] = 0
         self.free_conn = {}
         self.opened = False
@@ -276,7 +288,7 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
         self.conn_freed = {}
 
     @asynccontextmanager
-    async def connection(self, conn_addr: str) -> AsyncIterator[T]:
+    async def connection(self, conn_addr: str) -> AsyncIterator[ConnTp]:
         conn = await self.get_conn(conn_addr)
         try:
             yield conn
@@ -284,17 +296,16 @@ class BaseConnectionPool(Generic[T], metaclass=abc.ABCMeta):
             await self.release_conn(conn_addr, conn)
 
 
-R = TypeVar('R')
-V = TypeVar('V')
+ResTp = TypeVar('ResTp')
 
 
-async def rpc_map(pool: BaseConnectionPool[R],
-                  func: Callable[..., Coroutine[Any, Any, V]],
+async def rpc_map(pool: BaseConnectionPool[ConnTp],
+                  func: Callable[..., Coroutine[Any, Any, ResTp]],
                   hostnames: List[str],
-                  **kwargs) -> AsyncIterable[Tuple[str, Union[Exception, V]]]:
+                  **kwargs) -> AsyncIterable[Tuple[str, Union[Exception, ResTp]]]:
 
-    conns: Dict[str, R] = {}
-    coros: List[Coroutine[Any, Any, V]] = []
+    conns: Dict[str, ConnTp] = {}
+    coros: List[Coroutine[Any, Any, ResTp]] = []
 
     try:
         for hostname in hostnames:

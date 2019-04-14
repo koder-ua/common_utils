@@ -111,7 +111,7 @@ def flatmap(func: Callable[[FM_FUNC_INPUT], Iterable[FM_FUNC_RES]],
             yield res
 
 
-T = TypeVar("T")
+T = TypeVar("ConnTp")
 R = TypeVar("R")
 
 
