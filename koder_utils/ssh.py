@@ -33,8 +33,11 @@ class SSH(ISimpleAsyncNode):
         cmd = ["scp", *self.ssh_opts, local_path, f"{self.ssh_user}@{self.node}:{remote_path}"]
         await run(cmd, timeout=timeout)
 
-    async def __aenter__(self) -> 'SSH':
-        return self
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
 
 
 async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:

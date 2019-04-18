@@ -40,7 +40,7 @@ fi
 readonly ARCH_CONTENT_POS=$(awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' "${ARCHNAME}")
 
 if [[ "${CMD}" == "--list" ]] ; then
-    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar --gzip --list
+    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -Jtv
     exit 0
 fi
 
@@ -53,7 +53,7 @@ if [[ "${CMD}" == "--install" ]] ; then
     fi
 
     mkdir --parents "${INSTALL_PATH}"
-    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -zx -C "${INSTALL_PATH}"
+    tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" | tar -Jx -C "${INSTALL_PATH}"
     tail "-n+${ARCH_CONTENT_POS}" "${ARCHNAME}" > "${INSTALL_PATH}/distribution.tar.gz"
     exit 0
 fi

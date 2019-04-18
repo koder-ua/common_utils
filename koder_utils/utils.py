@@ -111,7 +111,7 @@ def flatmap(func: Callable[[FM_FUNC_INPUT], Iterable[FM_FUNC_RES]],
             yield res
 
 
-T = TypeVar("ConnTp")
+T = TypeVar("T")
 R = TypeVar("R")
 
 
@@ -162,8 +162,8 @@ async def make_cert_and_key(key_file: Path, cert_file: Path, subj: str):
     await run(cmd)
 
 
-def read_inventory(path: str) -> List[str]:
-    names = [name_or_ip.strip() for name_or_ip in open(path)]
+def read_inventory(path: Path) -> List[str]:
+    names = [name_or_ip.strip() for name_or_ip in path.open()]
     return [name_or_ip for name_or_ip in names if name_or_ip and not name_or_ip.startswith("#")]
 
 

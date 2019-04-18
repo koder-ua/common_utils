@@ -121,7 +121,7 @@ class ISimpleAsyncNode(ICloseOnExit):
         pass
 
 
-class IAsyncNode(ICloseOnExit):
+class IAsyncNode(ISimpleAsyncNode):
     @abc.abstractmethod
     async def read(self, path: AnyPath, compress: bool = False) -> bytes:
         pass
@@ -226,12 +226,13 @@ ConnTp = TypeVar('ConnTp')
 
 
 class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
-    def __init__(self, max_conn_per_node: int = None) -> None:
+    def __init__(self, max_conn_per_node: int = None, max_conn_total: int = None) -> None:
         assert max_conn_per_node >= 1, f"max_conn_per_node(={max_conn_per_node}) must be >= 1"
         self.free_conn: Dict[str, List[ConnTp]] = {}
         self.conn_per_node: Dict[str, int] = {}
         self.conn_freed: Dict[str, asyncio.Condition] = {}
         self.max_conn_per_node = max_conn_per_node
+        self.max_conn_total = max_conn_total  # not supported for now
         self.opened = False
 
     async def get_conn(self, conn_addr: str) -> ConnTp:
@@ -309,9 +310,13 @@ async def rpc_map(pool: BaseConnectionPool[ConnTp],
 
     try:
         for hostname in hostnames:
-            conn = await pool.get_conn(hostname)
-            conns[hostname] = conn
-            coros.append(func(conn, hostname, **kwargs))
+            try:
+                conn = await pool.get_conn(hostname)
+            except Exception as exc:
+                yield hostname, exc
+            else:
+                conns[hostname] = conn
+                coros.append(func(conn, hostname, **kwargs))
 
         for hostname, res in zip(hostnames, await asyncio.gather(*coros, return_exceptions=True)):
             yield hostname, res

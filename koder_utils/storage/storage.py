@@ -208,7 +208,7 @@ class Storage(IStorageBase):
         self.cache = {}
         self.other_caches = collections.defaultdict(dict)
 
-    def flush(self):
+    def flush(self) -> None:
         self.cache = {}
         self.other_caches = collections.defaultdict(dict)
 
@@ -518,7 +518,7 @@ def make_attr_storage(storage, ext, serializer=None):
     return AttredStorage(storage, serializer, ext)
 
 
-def make_storage(url, existing=False, serializer='safe'):
+def make_storage(url: str, existing: bool = False, serializer: str = 'safe'):
     fstor = FSStorage(url, existing)
     return Storage(fstor, serializer_map[serializer]())
 
