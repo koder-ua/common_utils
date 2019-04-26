@@ -146,11 +146,11 @@ class JSONDeserializationError(ValueError):
             return f"During deserialization of {stack[0]} : {self.message}"
 
 
-def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
+def dict_from_json(cls: Type[T], data: Dict[str, Any]) -> Dict[str, Any]:
     mp = cls.__js_mapping__
     # this is fast-path
     try:
-        return cls(**{name: conv(data[mp[name]]) for name, conv in cls.__js_converters__.items()})
+        return {name: conv(data[mp[name]]) for name, conv in cls.__js_converters__.items()}
     except (ValueError, TypeError, AssertionError, KeyError):
         pass
 
@@ -169,6 +169,10 @@ def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
                 msg = f"Input js dict has no key '{jsname}'. Only fields {','.join(data)} present.\n{exc}"
                 raise JSONDeserializationError(cls, name, msg, jsname) from exc
             raise
+
+
+def from_json(cls: Type[T], data: Dict[str, Any]) -> T:
+    return cls(**dict_from_json(cls, data))
 
 
 def jsonable(cls: T) -> T:

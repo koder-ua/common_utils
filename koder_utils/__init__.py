@@ -1,7 +1,7 @@
 from .inumeric import Array
 from .converters import (b2ssize, b2ssize_10, unit_conversion_coef, unit_conversion_coef_f, seconds_to_str,
                          seconds_to_str_simple, ssize2b, float2str, floats2str)
-from .json_utils import JsonBase, get_converter as json_converter, register_from_json, js
+from .json_utils import JsonBase, get_converter as json_converter, register_from_json, js, dict_from_json
 from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 from .node_info_classes import (Host, ClusterNetData, NetStats, BlockUsage, IPANetDevInfo, NetStats, Disk, DiskType,
                                 LogicBlockDev, BlockDevType, HWModel, DFInfo, LSHWDiskInfo, LSHWInfo, LSHWNetInfo,
