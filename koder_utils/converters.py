@@ -1,5 +1,6 @@
 import math
-from typing import TypeVar, Union, List
+from fractions import Fraction
+from typing import cast, Union, Tuple, TypeVar, List
 
 
 TNumber = TypeVar('TNumber', int, float)
@@ -42,7 +43,7 @@ def float2str(val: float, digits: int = 3) -> str:
         if val < 10 ** (idx + digits):
             return str(int(val) // (10 ** idx) * (10 ** idx))
 
-    return "{0:.2e}".format(val)
+    return f"{val:.2e}"
 
 
 def floats2str(vals: List[float], digits: int = 3, width: int = 8) -> List[str]:
@@ -81,15 +82,6 @@ def floats2str(vals: List[float], digits: int = 3, width: int = 8) -> List[str]:
     return result
 
 
-def sec_to_str(seconds: int) -> str:
-    m = (seconds % 3600) // 60
-    return f"{seconds // 3600}:{m:02d}:{seconds % 60:02d}"
-
-
-from typing import cast, Union, Tuple, TypeVar, List, Callable
-from fractions import Fraction
-
-
 RSMAP = [('Ki', 1024),
          ('Mi', 1024 ** 2),
          ('Gi', 1024 ** 3),
@@ -126,7 +118,7 @@ def ssize2b(ssize: Union[str, int]) -> int:
             return int(ssize[:-1]) * SMAP[ssize[-1]]
         return int(ssize)
     except (ValueError, TypeError, AttributeError):
-        raise ValueError("Unknown size format {!r}".format(ssize))
+        raise ValueError(f"Unknown size format {ssize!r}")
 
 
 def to3digit(cval: float) -> str:
@@ -135,14 +127,14 @@ def to3digit(cval: float) -> str:
         return str(int(cval))
     if cval > 10:
         if has_next_digit_after_coma(cval):
-            return "{:.1f}".format(cval)
+            return f"{cval:.1f}"
         else:
             return str(int(cval))
     if cval >= 1:
         if has_second_digit_after_coma(cval):
-            return "{:.2f}".format(cval)
+            return f"{cval:.2f}"
         elif has_next_digit_after_coma(cval):
-            return "{:.1f}".format(cval)
+            return f"{cval:.1f}"
         return str(int(cval))
     raise AssertionError("Can't get here")
 
@@ -163,7 +155,7 @@ def b2ssize(value: Union[int, float]) -> str:
         if value < 1024 * scale:
             return to3digit(float(value) / scale) + " " + name
 
-    return "{} {}i".format(value // scale, name)
+    return f"{value // scale} {name}i"
 
 
 def has_next_digit_after_coma(x: float) -> bool:
@@ -183,13 +175,13 @@ def b2ssize_10(value: Union[int, float]) -> str:
         return "0"
 
     if value / RSMAP_10[0][1] < 1.0:
-        return "{:.2e}".format(value)
+        return f"{value:.2e}"
 
     for name, scale in RSMAP_10:
         cval = value / scale
         if cval < 1000:
-            return to3digit(cval) + " " + name
-    return "{} {}".format(int(value // scale), name)
+            return f"{to3digit(cval)} {name}"
+    return f"{int(value // scale)} {name}"
 
 
 def split_unit(units: str) -> Tuple[Union[Fraction, int], str]:
@@ -212,7 +204,7 @@ def unit_conversion_coef(from_unit: str, to_unit: str) -> Union[Fraction, int]:
     f1, u1 = split_unit(from_unit)
     f2, u2 = split_unit(to_unit)
 
-    assert u1 == u2, "Can't convert {!r} to {!r}".format(from_unit, to_unit)
+    assert u1 == u2, f"Can't convert {from_unit!r} to {to_unit!r}"
 
     if isinstance(f1, int) and isinstance(f2, int):
         if f1 % f2 != 0:
@@ -232,3 +224,34 @@ def unit_conversion_coef(from_unit: str, to_unit: str) -> Union[Fraction, int]:
 
 def unit_conversion_coef_f(from_unit: str, to_unit: str) -> float:
     return float(unit_conversion_coef(from_unit, to_unit))
+
+
+def seconds_to_str(seconds: Union[int, float]) -> str:
+    seconds = int(seconds)
+
+    s = seconds % 60
+    m = (seconds // 60) % 60
+    h = (seconds // 3600) % 24
+    d = seconds // (3600 * 24)
+
+    if s != 0 and h != 0:
+        if d == 0:
+            return f"{h}:{m:<02d}:{s:<02d}"
+        return f"{d} days {h}:{m:<02d}:{s:<02d}"
+
+    data = []
+    if d != 0:
+        data.append(f"{d} days")
+    if h != 0:
+        data.append(f"{h}h")
+    if m != 0:
+        data.append(f"{m}m")
+    if s != 0:
+        data.append(f"{s}s")
+
+    return " ".join(data)
+
+
+def seconds_to_str_simple(seconds: Union[int, float]) -> str:
+    seconds = int(seconds)
+    return f"{seconds // 3600}:{(seconds // 60) % 60:<02d}:{seconds % 60:<02d}"

@@ -1,14 +1,15 @@
-import asyncio
-import json
-import logging
 import os
+import json
 import signal
-from pathlib import Path
+import asyncio
+import logging
 import subprocess
+from pathlib import Path
 from dataclasses import dataclass
-from typing import Union, Tuple, Sequence, Optional, BinaryIO, Callable, Any, Dict
+from typing import Union, Tuple, Sequence, Optional, BinaryIO, Callable, Any
 
-logger = logging.getLogger("common.cli")
+
+logger = logging.getLogger("utils.cli")
 
 
 CmdType = Union[str, Sequence[Union[str, bytes, Path]]]
@@ -135,4 +136,3 @@ async def run_stdout(*args, **kwargs) -> str:
 
 async def run_json(*args, **kwargs) -> Any:
     return json.loads((await run(*args, **kwargs)).stdout)
-
