@@ -1,52 +1,10 @@
+from __future__ import annotations
+
 import abc
-import itertools
-from typing import Any, IO, Tuple, List, Dict, Iterator, Union, Optional, Type, TypeVar, Iterable
-from .types import DataSource, NumVector
+from typing import IO, List, Dict, Iterator, Union, Type, Iterable, TypeVar, Tuple, Any
 
 
-FieldsDct = Dict[str, Union[str, List[str]]]
-SensorIDS = Iterable[Dict[str, str]]
-
-
-class PathSelector:
-    def __init__(self) -> None:
-        self.extra_mappings = {}  # type: Dict[str, Dict[str, List[FieldsDct]]]
-        # new_field_name:
-        #     new_field_value:
-        #         - {old_field1: old_value1(s), ...}
-        #         - {old_field2: old_value2(s), ...}
-        #         ....
-
-    def add_mapping(self, param: str, val: str, **fields: Union[str, List[str]]) -> None:
-        self.extra_mappings.setdefault(param, {}).setdefault(val, []).append(fields)
-
-    def __call__(self, **mapping: Union[str, List[str]]) -> Iterator[Dict[str, str]]:
-        # final cache may be created: mapping => result
-        if not mapping:
-            yield {}
-        else:
-            to_lst = lambda x: x if isinstance(x, list) else [x]
-            extra = {}  # type: Dict[str, List[str]]
-            mapping_lst = {key: to_lst(val) for key, val in mapping.items()}
-            cleared_mapping = mapping_lst.copy()
-            for name, vals in mapping_lst.items():
-                if name in self.extra_mappings:
-                    extra[name] = to_lst(cleared_mapping.pop(name))
-
-            if not extra:
-                assert cleared_mapping == mapping_lst
-                keys, vals = zip(*mapping_lst.items())
-                for combination in itertools.product(*vals):
-                    yield dict(zip(keys, combination))
-            else:
-                for extra_name, extra_vals in extra.items():
-                    for extra_val in extra_vals:
-                        for pdict in self.extra_mappings[extra_name][extra_val]:
-                            params = cleared_mapping.copy()  # type: Dict[str, List[str]]
-                            for pkey, pval in pdict.items():
-                                assert pkey not in params
-                                params[pkey] = pval
-                            yield from self(**params)
+from . import NumVector
 
 
 class IStorable(metaclass=abc.ABCMeta):
@@ -57,14 +15,14 @@ class IStorable(metaclass=abc.ABCMeta):
         pass
 
     @classmethod
-    def fromraw(cls, data: Dict[str, Any]) -> 'IStorable':
+    def fromraw(cls, data: Dict[str, Any]) -> IStorable:
         pass
 
 
 class Storable(IStorable):
     """Default implementation"""
 
-    __ignore_fields__ = []  # type: List[str]
+    __ignore_fields__: List[str] = []
 
     def raw(self) -> Dict[str, Any]:
         return {name: val
@@ -72,7 +30,7 @@ class Storable(IStorable):
                 if not name.startswith("_") and name not in self.__ignore_fields__}
 
     @classmethod
-    def fromraw(cls, data: Dict[str, Any]) -> 'IStorable':
+    def fromraw(cls, data: Dict[str, Any]) -> IStorable:
         obj = cls.__new__(cls)
         if cls.__ignore_fields__:
             data = data.copy()
@@ -133,7 +91,7 @@ class ISimpleStorage(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def sub_storage(self, path: str) -> 'ISimpleStorage':
+    def sub_storage(self, path: str) -> ISimpleStorage:
         pass
 
     @abc.abstractmethod
@@ -144,15 +102,13 @@ class ISimpleStorage(metaclass=abc.ABCMeta):
 ObjClass = TypeVar('ObjClass', bound=IStorable)
 
 
-class IStorageNNP(metaclass=abc.ABCMeta):
-    other_caches = None  # type: Dict[str, Dict]
+class IStorage(metaclass=abc.ABCMeta):
+    sstorage: ISimpleStorage
+    serializer: ISerializer
+    other_caches: Dict[str, Dict] = None
 
     @abc.abstractmethod
-    def __init__(self, sstorage: ISimpleStorage, serializer: ISerializer) -> None:
-        pass
-
-    @abc.abstractmethod
-    def sub_storage(self, *path: str) -> 'IStorageNNP':
+    def sub_storage(self, *path: str) -> IStorage:
         pass
 
     @abc.abstractmethod
@@ -214,7 +170,7 @@ class IStorageNNP(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def __enter__(self) -> 'IStorageNNP':
+    def __enter__(self) -> IStorage:
         pass
 
     @abc.abstractmethod
@@ -240,44 +196,3 @@ class IStorageNNP(metaclass=abc.ABCMeta):
                   append_on_exists: bool = False) -> None:
         pass
 
-
-
-SensorsIter = Iterable[Dict[str, str]]
-
-
-class ISensorStorageNNP(metaclass=abc.ABCMeta):
-    storage = None  # type: IStorageNNP
-    locator = None  # type: PathSelector
-
-    ts_arr_tag = 'csv'
-    csv_file_encoding = 'utf8'
-
-    @abc.abstractmethod
-    def sync(self) -> None:
-        pass
-
-    @abc.abstractmethod
-    def add_mapping(self, param: str, val: str, **fields: Union[str, List[str]]) -> None:
-        pass
-
-    @abc.abstractmethod
-    def append_sensor(self, data: NumVector, ds: DataSource, units: str) -> None:
-        pass
-
-    @abc.abstractmethod
-    def iter_paths(self, path_templ: str) -> Iterator[Tuple[bool, str, Dict[str, str]]]:
-        pass
-
-    @abc.abstractmethod
-    def iter_sensors(self, **vals) -> Iterator[DataSource]:
-        pass
-
-
-class IImagesStorage(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def check_plot_file(self, source: DataSource) -> Optional[str]:
-        pass
-
-    @abc.abstractmethod
-    def put_plot_file(self, data: bytes, source: DataSource) -> str:
-        pass

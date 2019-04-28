@@ -104,9 +104,9 @@ class ISimpleAsyncNode(ICloseOnExit):
         pass
 
     async def run_bytes(self, cmd: CmdType, input_data: Union[bytes, None, BinaryIO] = None,
-                         merge_err: bool = True, timeout: float = 60,
-                         term_timeout: float = 1, env: Dict[str, str] = None,
-                         compress: bool = True) -> bytes:
+                        merge_err: bool = True, timeout: float = 60,
+                        term_timeout: float = 1, env: Dict[str, str] = None,
+                        compress: bool = True) -> bytes:
         return (await self.run(cmd, input_data=input_data, merge_err=merge_err, timeout=timeout,
                                term_timeout=term_timeout, env=env, compress=compress)).stdout_b
 

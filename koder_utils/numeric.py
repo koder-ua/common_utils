@@ -1,8 +1,12 @@
+import copy
+
 import math
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import List, Tuple, Optional, cast
 
 import numpy
 
+from . import unit_conversion_coef_f
 
 MIN_VAL = 1
 MAX_LIN_DIFF = 100

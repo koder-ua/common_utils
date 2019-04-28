@@ -1,16 +1,13 @@
 """
 This module contains interfaces for storage classes
 """
-
+import array
 import os
 import re
 import json
 import shutil
 import collections
-from typing import Any, Type, IO, Tuple, cast, List, Dict, Iterable, Iterator, NamedTuple, Optional
-
-from .types import NumVector, get_arr_info
-from .istorage_nnp import IStorable, ISimpleStorage, ISerializer, _Raise, ObjClass, IStorageNNP
+from typing import Any, Type, IO, Tuple, cast, List, Dict, Iterable, Iterator, NamedTuple, Optional, TypeVar
 
 try:
     import yaml
@@ -28,17 +25,38 @@ try:
 except ImportError:
     pyaml = None
 
-
 try:
     import numpy
-    from .istorage import IStorage
-    IStorageBase = IStorage
 except ImportError:
     numpy = None
-    IStorageBase = IStorageNNP
+
+from . import IStorable, ISimpleStorage, ISerializer, _Raise, ObjClass, NumVector, IStorage
+
 
 ArrayData = NamedTuple("ArrayData",
                        [('header', List[str]), ('histo_bins', Optional[NumVector]), ('data', Optional[NumVector])])
+
+
+def get_arr_info(obj: Any) -> Tuple[str, List[int]]:
+    if numpy is not None:
+        if isinstance(obj, numpy.ndarray):
+            return obj.dtype.name, list(obj.shape)
+
+    if isinstance(obj, array.array):
+        return ({'f': 'float32', 'd': 'float64', 'b': 'int8', 'B': 'uint8',
+                 'h': 'int16', 'H': 'uint16', 'i': 'int16', 'I': 'uint16',
+                 'l': 'int32', 'L': 'uint32', 'q': 'int64', 'Q': 'uint64'}[obj.typecode], [len(obj)])
+
+    shape = []
+    while isinstance(obj, (list, tuple)):
+        shape.append(len(obj))
+        obj = obj[0]
+
+    if isinstance(obj, int):
+        return 'int64', shape
+
+    assert isinstance(obj, float)
+    return 'float64', shape
 
 
 class FSStorage(ISimpleStorage):
@@ -198,7 +216,7 @@ else:
     PYAMLSerializer = YAMLSerializer = SAFEYAMLSerializer = None
 
 
-class Storage(IStorageBase):
+class Storage(IStorage):
     """interface for storage"""
     csv_file_encoding = 'utf8'
 
@@ -381,8 +399,8 @@ class Storage(IStorageBase):
         exists = append_on_exists and path in self.sstorage
 
         vw = data.view().reshape((data.shape[0], 1)) \
-             if (numpy and isinstance(data, numpy.ndarray) and len(shape) == 1) \
-             else data
+            if (numpy and isinstance(data, numpy.ndarray) and len(shape) == 1) \
+            else data
 
         mode = "cb" if not exists else "rb+"
 
@@ -445,7 +463,7 @@ class AttredStorage:
 
         for step in path:
             if not curr.__storage.isdir(step):
-                raise KeyError("Path {0!r} expected to be a dir, but it's a file at {1!r}".format(step, curr.__r))
+                raise KeyError(f"Path {step!r} expected to be a dir, but it's a file at {curr.__r!r}")
             curr = curr.__class__(curr.__storage.sub_storage(step), curr.__serializer, curr.__ext)
 
         if not last:
@@ -455,7 +473,7 @@ class AttredStorage:
             if dir_allowed:
                 return True, curr.__class__(curr.__storage.sub_storage(last), curr.__serializer, curr.__ext)
             else:
-                raise KeyError("Path {0!r} expected to be a dir, but it's a file at {1!r}".format(last, curr.__r))
+                raise KeyError(f"Path {last!r} expected to be a dir, but it's a file at {curr.__r!r}")
 
         return False, curr.__storage.get(last + ("." + ext if ext != '' else ''))
 
@@ -473,11 +491,10 @@ class AttredStorage:
         try:
             return self[name]
         except KeyError as exc:
-            raise AttributeError("Can't found file '{0}.{1}' or dir '{0}' at {2!r}. {3!s}"
-                                 .format(name, self.__ext, self.__r, exc))
+            raise AttributeError(f"Can't found file '{name}.{self.__ext}' or dir '{name}' at {self.__r!r}. {exc!s}")
 
     def __str__(self) -> str:
-        return "{0.__class__.__name__}({0.__r})".format(self)
+        return f"{self.__class__.__name__}({self.__r})"
 
     def __iter__(self) -> Iterator[Tuple[bool, str]]:
         return iter(self.__storage.list("."))
@@ -512,24 +529,27 @@ serializer_map = {
 }
 
 
-def make_attr_storage(storage, ext, serializer=None):
+def make_attr_storage(storage, ext, serializer=None) -> AttredStorage:
     if serializer is None:
         serializer = serializer_map[ext]()
     return AttredStorage(storage, serializer, ext)
 
 
-def make_storage(url: str, existing: bool = False, serializer: str = 'safe'):
+def make_storage(url: str, existing: bool = False, serializer: str = 'safe') -> Storage:
     fstor = FSStorage(url, existing)
     return Storage(fstor, serializer_map[serializer]())
 
 
+T = TypeVar('T')
+
+
 class TypedStorage:
-    def __init__(self, storage):
+    def __init__(self, storage: IStorage) -> None:
         self.txt = make_attr_storage(storage.sstorage, 'txt')
         self.json = make_attr_storage(storage.sstorage, 'json')
         self.xml = make_attr_storage(storage.sstorage, 'xml')
         self.raw = storage
 
-    def substorage(self, path):
+    def substorage(self: T, path) -> T:
         return self.__class__(self.raw.substorage(path))
 
