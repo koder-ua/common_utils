@@ -14,9 +14,6 @@ class Align(Enum):
     left = 1
     center = 2
     right = 3
-    left_right = 4
-    center_right = 5
-    left_center = 6
 
 
 @dataclass

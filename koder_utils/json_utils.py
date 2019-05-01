@@ -1,3 +1,4 @@
+import copy
 import inspect
 from dataclasses import Field, field
 from enum import Enum, IntEnum
@@ -61,6 +62,7 @@ js_noauto_key = 'json::noauto'
 js_converter_key = 'json::converter'
 js_key = 'json::key'
 js_default = 'json::default'
+js_default_factory = 'json::default_factory'
 js_inline = 'json::inline'
 js_strict = 'json::strict'
 
@@ -73,6 +75,8 @@ def js(*, noauto: bool = False,
        converter: Callable[[Any], Any] = None,
        key: str = None,
        default: Any = _NotAllowed,
+       allow_shared_default: bool = False,
+       default_factory: Callable[[], Any] = _NotAllowed,
        inline: bool = False,
        strict: bool = False,
        **params) -> Field:
@@ -100,8 +104,21 @@ def js(*, noauto: bool = False,
         metadata[js_inline] = None
 
     if default is not _NotAllowed:
+        assert default_factory is _NotAllowed, "Can't have default and default_factory set and the same time"
         assert js_default not in metadata
+        if not isinstance(default, (str, bool, int, float, bytes, type(None), tuple, frozenset)):
+            if isinstance(default, (list, set, dict)):
+                default = copy.copy(default)
+            else:
+                if not allow_shared_default:
+                    raise ValueError(f"Can't set default value to instance of mutable type {type(default).__name__}" +
+                                     " pass allow_shared_default=True to disable this check")
+
         metadata[js_default] = default
+
+    if default_factory is not _NotAllowed:
+        assert js_default_factory not in metadata
+        metadata[js_default_factory] = default
 
     if strict:
         assert js_strict not in metadata
@@ -215,7 +232,9 @@ def dict_from_json(cls: Type[T], data: Dict[str, Any]) -> Dict[str, Any]:
 
     mp = cls.__js_mapping__
     default = cls.__js_default__
+    default_factory = cls.__js_default_factory__
     inline = cls.__js_inline__
+
     localy_raised = False
     for name, conv in cls.__js_converters__.items():
         jsname = mp[name]
@@ -227,6 +246,8 @@ def dict_from_json(cls: Type[T], data: Dict[str, Any]) -> Dict[str, Any]:
                 if v is _NotAllowed:
                     if name in default:
                         res[name] = default[name]
+                    elif name in default_factory:
+                        res[name] = default_factory[name]()
                     else:
                         msg = f"Input js dict has no key '{jsname}'. Only fields {','.join(data)} present."
                         localy_raised = True
@@ -260,6 +281,7 @@ def jsonable(cls: T) -> T:
     converters: Dict[str, Callable[[Any], Any]] = {}
     mapping: Dict[str, str] = {}
     default: Dict[str, Any] = {}
+    default_factory: Dict[str, Any] = {}
     inline: Set[str] = set()
 
     # if dataclass decorator already applied
@@ -285,6 +307,9 @@ def jsonable(cls: T) -> T:
             if js_default in v.metadata:
                 default[name] = v.metadata[js_default]
 
+            if js_default_factory in v.metadata:
+                default_factory[name] = v.metadata[js_default_factory]
+
             if js_inline in v.metadata:
                 inline.add(name)
 
@@ -304,6 +329,7 @@ def jsonable(cls: T) -> T:
     cls.__js_converters__ = converters
     cls.__js_mapping__ = mapping
     cls.__js_default__ = default
+    cls.__js_default_factory__ = default_factory
     cls.__js_inline__ = inline
 
     cls.__js_clear__ = not default and not inline and all(k == v for k, v in mapping.items()) and \

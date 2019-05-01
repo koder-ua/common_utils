@@ -1,5 +1,5 @@
 import sys
-from typing import TypeVar, Iterator, Tuple, Union
+from typing import TypeVar, Iterator, Tuple, Union, List, Iterable
 
 from . import Align, XMLBuilder, Table, XMLNode, SimpleTable, RawContent, AnyXML, root_xml_node
 from koder_utils.table import Separator
@@ -20,7 +20,7 @@ def do_to_html(node: XMLNode, level: int) -> Iterator[Tuple[int, str]]:
         assert not childs
         yield level, "<br>"
     else:
-        attrs = " ".join(f'{name if name != "_class" else "class"}="{val}"' for name, val in attrs.items())
+        attrs = " ".join(f'{name}="{val}"' for name, val in attrs.items())
         if len(childs) == 0:
             if attrs:
                 attrs += " "
@@ -61,21 +61,29 @@ HTML_ALIGN_MAPPING = {
     Align.center: 'center',
     Align.left: 'left',
     Align.right: 'right',
-    Align.left_right: 'left',
-    Align.center_right: 'right',
-    Align.left_center: 'center'
 }
 
 
-def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False) -> XMLNode:
+def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False,
+                  classes: Iterable[str] = None) -> XMLNode:
     # doc = XMLBuilder("table", **{"class": "table table-bordered table-striped table-condensed table-hover",
     #                              "style": "width: auto;"})
 
     content = t.content(hide_unused=hide_unused)
     headers = t.headers(hide_unused=hide_unused)
+    classes = [] if not classes else list(classes)
+    for name in dir(t):
+        if name.startswith("__html_") and name.endswith("__"):
+            if name == '__html_classes__':
+                classes.extend(t.__html_classes__.split(" "))
+            else:
+                assert False, f"Unknown html meta attribute {name!r}"
 
     doc = XMLBuilder()
     with doc.table:
+        if classes:
+            doc(class_=" ".join(classes))
+
         with doc.thead:
             with doc.tr:
                 for header in headers:
