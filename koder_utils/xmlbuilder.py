@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import abc
 import weakref
-from typing import List, Any, Union, TypeVar, Callable, Dict, Iterator, Optional
-from xml.etree.ElementTree import TreeBuilder, tostring, ElementTree
-import xml.dom.minidom
+from typing import List, Any, Union, TypeVar, Callable, Iterator, Optional, NewType, Mapping
+from xml.sax.saxutils import quoteattr, escape
+
 
 __doc__ = """
 XMLBuilder is tiny library build on top of ElementTree.TreeBuilder to
@@ -57,96 +58,186 @@ Happy xml'ing.
 T = TypeVar('T')
 
 
-class XMLDocument:
-    def __init__(self, name: str, text: str = None, **attrs: str) -> None:
-        self._root_tag = XMLNode(name, doc=weakref.ref(self))
-        self._root_tag(text, **attrs)
-        self._stack = [self._root_tag]
+class IXMLBuilder(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def __call__(self, text: Union[RawContent, str] = None, **attrs: str) -> None:
+        ...
 
-    def __call__(self, text: str = None, **attrs: str) -> None:
-        assert self._stack, "Can't add text to empty document, open tag first"
+    @abc.abstractmethod
+    def __getattr__(self, name: str) -> XMLNode:
+        ...
+
+    @abc.abstractmethod
+    def __iter__(self) -> Iterator[XMLNode]:
+        ...
+
+    @abc.abstractmethod
+    def __lshift__(self: T, other: AnyXML) -> T:
+        ...
+
+    def __ilshift__(self, other: AnyXML) -> None:
+        self << other
+
+
+class RawContent:
+    def __init__(self, content: AnyXML) -> None:
+        self.content = str(content)
+
+    def __add__(self, other: AnyXML) -> RawContent:
+        return RawContent(self.content + str(other))
+
+    def __str__(self) -> str:
+        return self.content
+
+
+def prepare_childs(obj: AnyXML) -> Iterator[XMLDocPart]:
+    if isinstance(obj, XMLBuilder):
+        yield from obj._roots
+    elif isinstance(obj, str):
+        yield escape(obj)
+    else:
+        assert isinstance(obj, (XMLNode, RawContent))
+        yield obj
+
+
+def check_tar_params(name: str, text: Optional[Union[RawContent, str]], attrs: Mapping[str, str]) -> None:
+    if not isinstance(name, str):
+        raise ValueError(f"Tag name must be string, not {type(name).__name__}")
+
+    if text is not None and not isinstance(text, (str, RawContent)):
+        raise ValueError(f"Text must be string, not {type(text).__name__}")
+
+    for aname, aval in attrs.items():
+        if not isinstance(aname, str):
+            raise ValueError(f"Attr name must be string, not {type(aname).__name__}")
+        if not isinstance(aval, str):
+            raise ValueError(f"Attr value must be string, not {type(aval).__name__}")
+
+
+class XMLBuilder(IXMLBuilder):
+    """
+    Document builder and pointer to current build site
+    """
+
+    def __init__(self) -> None:
+        self._stack: List[XMLNode] = []
+        self._roots: List[XMLDocPart] = []
+
+    def __call__(self, text: Union[RawContent, str] = None, **attrs: str) -> None:
+        check_tar_params("", text, attrs)
+        assert self._stack, "Can't set attrs to empty document, open tag first"
         self._stack[-1](text, **attrs)
 
     def __getattr__(self, name: str) -> XMLNode:
-        return getattr(self._stack[-1], name)
+        if self._stack:
+            return getattr(self._stack[-1], name)
+        node = XMLNode(name, doc_ref=weakref.ref(self))
+        self._roots.append(node)
+        return node
 
-    def __iter__(self) -> Iterator[XMLNode]:
-        yield self._root_tag
+    def __iter__(self) -> Iterator[XMLDocPart]:
+        return iter(self._roots)
 
-    def __lshift__(self: T, other: Union[XMLDocument, T, XMLNode]) -> T:
-        self._stack[-1] << other
+    def __lshift__(self, other: AnyXML) -> XMLBuilder:
+        if self._stack:
+            self._stack[-1] << other
+        else:
+            self._roots.extend(prepare_childs(other))
         return self
 
+    def __str__(self) -> str:
+        return "".join(map(str, self._roots))
 
-class XMLNode:
-    def __init__(self, tag: str, doc: Optional[Callable[[], XMLDocument]] = None, text: str = None,
+
+class XMLNode(IXMLBuilder):
+    __slots__ = ("_doc_ref", "_tag", "_attrs", "_childs")
+
+    def __init__(self, tag: str, doc_ref: Optional[Callable[[], XMLBuilder]] = None, text: str = None,
                  **attrs: str) -> None:
 
-        self._doc = doc
+        check_tar_params(tag, text, attrs)
+
+        self._doc_ref = doc_ref
         self._tag = tag
         self._attrs = attrs
-        self._childs: List[Union[XMLNode, str]] = []
+        self._childs: List[XMLDocPart] = [text] if text else []
 
-        if text:
-            self._childs.append(text)
+    def __call__(self, text: Union[RawContent, str] = None, **attrs: str) -> XMLNode:
+        check_tar_params("", text, attrs)
 
-    def __call__(self: T, text: str = None, **attrs: str) -> T:
-        if text:
-            self._childs.append(text)
+        if isinstance(text, str):
+            self._childs.append(escape(text))
+        else:
+            if text is not None:
+                assert isinstance(text, RawContent), type(text)
+                self._childs.append(text)
         self._attrs.update(attrs)
         return self
 
-    def __getattr__(self: T, name: str) -> T:
-        node = self.__class__(name, doc=self._doc)
+    def __getattr__(self, name: str) -> XMLNode:
+        node = self.__class__(name, doc_ref=self._doc_ref)
         self._childs.append(node)
         return node
 
     def __enter__(self) -> None:
-        assert self._doc
-        return self._doc()._stack.append(self)
+        assert self._doc_ref
+        return self._doc_ref()._stack.append(self)
 
     def __exit__(self, x, y, z) -> bool:
-        assert self._doc
-        assert self is self._doc()._stack.pop()
+        assert self._doc_ref
+        assert self is self._doc_ref()._stack.pop()
         return False
 
-    def __iter__(self) -> Iterator[Union[XMLNode, str]]:
+    def __iter__(self) -> Iterator[XMLDocPart]:
         return iter(self._childs)
 
-    def __lshift__(self: T, other: Union[XMLDocument, T, XMLNode]) -> T:
-        if isinstance(other, XMLDocument):
-            other = other._root_tag
-        self._childs.append(other)
+    def __lshift__(self, other: AnyXML) -> XMLNode:
+        self._childs.extend(prepare_childs(other))
         return self
 
-
-def put_to_builder(node: XMLNode, builder: Any):
-    builder.start(node._tag, node._attrs)
-
-    for child in node:
-        if isinstance(child, str):
-            builder.data(child)
+    def __str__(self) -> str:
+        if self._attrs:
+            attrs = " " + " ".join(f'{name}={quoteattr(value)}' for name, value in self._attrs.items())
         else:
-            put_to_builder(child, builder)
+            attrs = ""
 
-    builder.end(node._tag)
-
-
-def doc_to_etree(doc: XMLDocument, builder_cls: Any = TreeBuilder) -> ElementTree:
-    builder = builder_cls()
-    root_tag, = list(doc)
-    put_to_builder(root_tag, builder)
-    return builder.close()
+        if not self._childs:
+            return f"<{self._tag}{attrs} />"
+        else:
+            return f"<{self._tag}{attrs}>{''.join(map(str, self._childs))}</{self._tag}>"
 
 
-def doc_to_bytes(doc: XMLDocument, builder_cls: Any = TreeBuilder,
-                 encoding: str = "utf8", pretty: bool = False) -> bytes:
-    res = tostring(doc_to_etree(doc, builder_cls), encoding=encoding)
-    if pretty:
-        doc2 = xml.dom.minidom.parseString(res.decode(encoding))
-        res = doc2.toprettyxml().encode(encoding)
-    return res
+XMLDocPart = Union[str, XMLNode, RawContent]
+AnyXML = Union[XMLDocPart, XMLBuilder]
 
 
-def doc_to_string(doc: XMLDocument, builder_cls: Any = TreeBuilder, pretty: bool = False) -> str:
-    return doc_to_bytes(doc, builder_cls, "utf8", pretty).decode("utf8")
+class SimpleBuilder:
+    def __init__(self, *, tag: XMLNode = None) -> None:
+        self._root_tag = tag
+        self._curr_tag = tag
+
+    def __getattr__(self, name: str) -> SimpleBuilder:
+        if self._curr_tag:
+            self._curr_tag = getattr(self._curr_tag, name)
+            return self
+        else:
+            return self.__class__(tag=XMLNode(name))
+
+    def __call__(self, text: Union[RawContent, str] = None, **attrs: str) -> SimpleBuilder:
+        self._curr_tag(text, **attrs)
+        return self
+
+    def __str__(self) -> str:
+        return str(self._root_tag)
+
+    def __invert__(self) -> RawContent:
+        return RawContent(self)
+
+
+def root_xml_node(doc: XMLBuilder) -> XMLNode:
+    assert len(doc._roots) == 1
+    assert isinstance(doc._roots[0], XMLNode)
+    return doc._roots[0]
+
+
+htag = SimpleBuilder()

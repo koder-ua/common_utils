@@ -1,8 +1,8 @@
 import sys
 from typing import TypeVar, Iterator, Tuple, Union
 
+from . import Align, XMLBuilder, Table, XMLNode, SimpleTable, RawContent, AnyXML, root_xml_node
 from koder_utils.table import Separator
-from . import Align, XMLDocument, Table, XMLNode, SimpleTable
 
 
 assert sys.version_info >= (3, 6), "This python module must run on 3.6, it requires buitin dict ordering"
@@ -35,58 +35,69 @@ def do_to_html(node: XMLNode, level: int) -> Iterator[Tuple[int, str]]:
                     yield from do_to_html(child, level + 1)
 
 
-def doc_to_html(doc: XMLDocument, step: str = "") -> str:
-    res = ""
-    root, = list(doc)
-    for level, data in do_to_html(root, 0):
-        res += step * level + data
-    return res
+def embed_raw(content: AnyXML, tag: str, **attrs: str) -> RawContent:
+    node = XMLNode(tag, **attrs)
+    node << content
+    return RawContent(node)
 
 
-def ok(text: str) -> XMLNode:
-    return XMLNode("font", color="green")(text)
+def ok(text: AnyXML) -> RawContent:
+    return embed_raw(text, 'font', color="green")
 
 
-def fail(text: str) -> XMLNode:
-    return XMLNode("font", color="red")(text)
+def fail(text: AnyXML) -> RawContent:
+    return embed_raw(text, 'font', color="red")
 
 
-def unknown() -> XMLNode:
-    return XMLNode("font", color="orange")("???")
+def unknown(text: AnyXML) -> RawContent:
+    return embed_raw(text, 'font', color="orange")
 
 
-def href(text: str, link: str) -> XMLNode:
-    return XMLNode("a", href=link)(text)
+def href(text: AnyXML, link: str) -> RawContent:
+    return embed_raw(text, "a", href=link)
 
 
 HTML_ALIGN_MAPPING = {
     Align.center: 'center',
     Align.left: 'left',
     Align.right: 'right',
-    Align.default: 'right',
+    Align.left_right: 'left',
+    Align.center_right: 'right',
+    Align.left_center: 'center'
 }
 
 
-def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False) -> XMLDocument:
+def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False) -> XMLNode:
     # doc = XMLBuilder("table", **{"class": "table table-bordered table-striped table-condensed table-hover",
     #                              "style": "width: auto;"})
 
     content = t.content(hide_unused=hide_unused)
     headers = t.headers(hide_unused=hide_unused)
 
-    doc = XMLDocument('table')
-
-    with doc.thead:
-        with doc.tr:
-            for header in headers:
-                doc.th(header)
-
-    with doc.tbody:
-        for row in content:
-            if row is Separator:
-                continue
+    doc = XMLBuilder()
+    with doc.table:
+        with doc.thead:
             with doc.tr:
-                for cell in row:
-                    doc.td(cell.data, align=HTML_ALIGN_MAPPING[cell.align], colspan=cell.colspan)
+                for header in headers:
+                    if header.align is not Align.default:
+                        doc.th(RawContent(header.header), align=HTML_ALIGN_MAPPING[header.align])
+                    else:
+                        doc.th(RawContent(header.header))
 
-    return doc
+        with doc.tbody:
+            for row in content:
+                if row is Separator:
+                    continue
+                with doc.tr:
+                    for cell in row:
+                        args = {}
+                        if cell.colspan != 1:
+                            args["colspan"] = str(cell.colspan)
+
+                        if cell.align is not Align.default:
+                            args['align'] = HTML_ALIGN_MAPPING[cell.align]
+
+                        # need to handle RawContent correctly
+                        doc.td(RawContent(cell.data), **args)
+
+    return root_xml_node(doc)

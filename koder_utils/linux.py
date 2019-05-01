@@ -75,7 +75,7 @@ def parse_var_list_file(content: str, separator: str, ignore_err: bool = False,
             res[name.strip()] = val.strip()
             pline = ""
 
-    if pline != "":
+    if pline != "" and not ignore_err:
         raise ValueError("Unfinished line at the end of the file")
 
     return res

@@ -1,12 +1,13 @@
-from .inumeric import Array, NumVector
-from .istorage import IStorable, ISimpleStorage, ISerializer, _Raise, ObjClass, IStorage, NumVector
+from .converters import (b2ssize, b2ssize_10, unit_conversion_coef, unit_conversion_coef_f, seconds_to_str,
+                         seconds_to_str_simple, ssize2b, float2str, floats2str, round_digits)
+from .inumeric import Array, IntArithmeticMixin, FloatArithmeticMixin, NumVector, NumVector1d, NumVector2d, Number
+from .istorage import IStorable, ISimpleStorage, ISerializer, _Raise, ObjClass, IStorage, Storable
+
 from .storage import make_storage, Storage, TypedStorage, Storage, AttredStorage
 
-from .converters import (b2ssize, b2ssize_10, unit_conversion_coef, unit_conversion_coef_f, seconds_to_str,
-                         seconds_to_str_simple, ssize2b, float2str, floats2str)
-from .xmlbuilder import XMLDocument, XMLNode, doc_to_bytes, doc_to_etree, doc_to_string
+from .xmlbuilder import XMLBuilder, XMLNode, RawContent, htag, AnyXML, root_xml_node
 from .table import Column, Table, renter_to_text, Align, SimpleTable
-from .html_utils import doc_to_html, ok, fail, unknown, href, table_to_html
+from .html_utils import ok, fail, unknown, href, table_to_html
 from .json_utils import (JsonBase, get_converter, register_from_json, js, dict_from_json, JSONDeserializationError)
 from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 from .node_info_classes import (Host, ClusterNetData, NetStats, BlockUsage, IPANetDevInfo, NetStats, Disk, DiskType,
@@ -26,3 +27,8 @@ from .linux import (ip_and_hostname, parse_ipa4, parse_var_list_file, parse_info
                     parse_diskstats, parse_lsblkjs, parse_meminfo, parse_lshw_info)
 
 from .ssh import SSH
+
+try:
+    from .plot import plot_histo, hmap_from_2d, plot_hmap_with_histo
+except ImportError:
+    pass

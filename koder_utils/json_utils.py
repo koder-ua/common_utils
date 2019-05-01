@@ -2,7 +2,7 @@ import inspect
 from dataclasses import Field, field
 from enum import Enum, IntEnum
 from pathlib import Path
-from typing import Callable, Type, Dict, Any, TypeVar, Union, List, Tuple, Optional, Set
+from typing import Callable, Type, Dict, Any, TypeVar, Union, List, Tuple, Optional, Set, get_type_hints
 
 
 T = TypeVar('T')
@@ -216,7 +216,7 @@ def dict_from_json(cls: Type[T], data: Dict[str, Any]) -> Dict[str, Any]:
     mp = cls.__js_mapping__
     default = cls.__js_default__
     inline = cls.__js_inline__
-
+    localy_raised = False
     for name, conv in cls.__js_converters__.items():
         jsname = mp[name]
         try:
@@ -229,11 +229,13 @@ def dict_from_json(cls: Type[T], data: Dict[str, Any]) -> Dict[str, Any]:
                         res[name] = default[name]
                     else:
                         msg = f"Input js dict has no key '{jsname}'. Only fields {','.join(data)} present."
+                        localy_raised = True
                         raise JSONDeserializationError(cls, name, msg, jsname)
                 else:
                     res[name] = conv(v)
         except JSONDeserializationError as exc:
-            exc.push(cls, name, jsname)
+            if not localy_raised:
+                exc.push(cls, name, jsname)
             raise
         except (ValueError, TypeError, AssertionError) as exc:
             raise JSONDeserializationError(cls, name, str(exc), jsname) from exc
@@ -258,7 +260,7 @@ def jsonable(cls: T) -> T:
     converters: Dict[str, Callable[[Any], Any]] = {}
     mapping: Dict[str, str] = {}
     default: Dict[str, Any] = {}
-    inline: Set[set] = set()
+    inline: Set[str] = set()
 
     # if dataclass decorator already applied
     if hasattr(cls, "__dataclass_fields__"):
@@ -266,8 +268,10 @@ def jsonable(cls: T) -> T:
     else:
         fields_dct = cls.__dict__
 
-    annotation = getattr(cls, "__annotations__", {})
+    annotation = get_type_hints(cls, localns=None, globalns=None)
     for name, tp in annotation.items():
+        if name.startswith("_"):
+            continue
         converter = None
         v = fields_dct.get(name)
         strict = False

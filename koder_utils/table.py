@@ -1,12 +1,12 @@
+from __future__ import annotations
+
 import abc
 import weakref
 from enum import Enum
 from typing import Any, Union, Optional, Callable, Iterable, Tuple, List, Dict, Type, Set
 from dataclasses import dataclass, field
 
-from koder_utils import seconds_to_str
-
-from . import b2ssize, b2ssize_10
+from . import b2ssize, b2ssize_10, seconds_to_str, RawContent
 
 
 class Align(Enum):
@@ -14,6 +14,9 @@ class Align(Enum):
     left = 1
     center = 2
     right = 3
+    left_right = 4
+    center_right = 5
+    left_center = 6
 
 
 @dataclass
@@ -43,7 +46,8 @@ class Field:
     dont_sort: bool = False
     help: Optional[str] = None
     attrs: Dict[str, Any] = field(default_factory=dict)
-    attr_name: Optional[str] = field(default=None)
+    attr_name: Optional[str] = None
+    chars_per_line: Optional[int] = None
 
     def __post_init__(self):
         assert self.tp is not tuple
@@ -62,10 +66,14 @@ class Fail:
 class Column:
     @staticmethod
     def i(header: str = None, **extra) -> Field:
+        return Field(None, header, lambda x: x, null_sort_key='-1', **extra)
+
+    @staticmethod
+    def d(header: str = None, **extra) -> Field:
         return Field(int, header, b2ssize_10, null_sort_key='-1', **extra)
 
     @staticmethod
-    def ei(header: str = None, **extra) -> Field:
+    def ed(header: str = None, **extra) -> Field:
         return Field(int, header, null_sort_key='-1', **extra)
 
     @staticmethod
@@ -77,6 +85,10 @@ class Column:
         return Field(str, header, **extra)
 
     @staticmethod
+    def to_str(header: str = None, **extra) -> Field:
+        return Field(None, header, converter=lambda x: x if isinstance(x, RawContent) else str(x), **extra)
+
+    @staticmethod
     def f2(header: str = None, **extra) -> Field:
         return Field((int, float), header, converter=lambda x: f"{x:.2f}", **extra)
 
@@ -85,8 +97,12 @@ class Column:
         return Field((int, float), header, converter=seconds_to_str, **extra)
 
     @staticmethod
-    def list(header: str = None, **extra) -> Field:
-        return Field(list, header, converter=lambda x: " ".join(map(str, x)), dont_sort=True, **extra)
+    def list(header: str = None, delim: str = ' ', **extra) -> Field:
+
+        def joiner(x: Iterable[Any]) -> str:
+            return delim.join(map(str, x))
+
+        return Field(list, header, converter=joiner, dont_sort=True, **extra)
 
     @staticmethod
     def ok_or_fail(header: str = None, **kwargs) -> Field:
@@ -158,7 +174,7 @@ class Table:
 
         return Cell(fld.converter(val), attrs=attrs, align=fld.align)
 
-    def next_row(self) -> 'Row':
+    def next_row(self) -> Row:
         self.rows.append([_NotUsed] * self.columns_count)
         return Row(self, self.rows[-1])
 
@@ -219,7 +235,7 @@ class Row:
 
 class SimpleTable:
     def __init__(self, *headers: str) -> None:
-        self.headers  = [Field(tp=str, header=header, attr_name=header) for header in headers]
+        self.hdrs = [Field(tp=str, header=header, attr_name=header) for header in headers]
         self.data: List[List[Cell]] = []
 
     def last_line_size(self) -> int:
@@ -227,28 +243,32 @@ class SimpleTable:
             return 0
         return sum(cell.colspan for cell in self.data[-1])
 
-    def add_cells(self, *cells: str) -> None:
-        assert not self.data or self.last_line_size() == len(self.headers)
-        assert len(cells) == len(self.headers)
-        self.data.append([Cell(vl) for vl in cells])
+    def add_row(self, *cells: Any) -> None:
+        assert not self.data or self.last_line_size() in (len(self.hdrs), 0), \
+            f"self.last_line_size()={self.last_line_size()} != len(self.headers)={len(self.hdrs)}"
+        assert len(cells) == len(self.hdrs), f"len(cells)={len(cells)} != len(self.headers)={len(self.hdrs)}"
+        if self.data and len(self.data[-1]) == 0:
+            self.data[-1] = [Cell(vl) for vl in cells]
+        else:
+            self.data.append([Cell(vl) for vl in cells])
         self.next_row()
 
     def next_row(self) -> None:
-        assert self.data and self.last_line_size() == len(self.headers)
+        assert self.data and self.last_line_size() == len(self.hdrs)
         self.data.append([])
 
     def headers(self, hide_unused: bool = False) -> List[Field]:
-        return self.headers
+        return self.hdrs
 
     def content(self, hide_unused: bool = False) -> List[Table.RowReadyTp]:
-        assert not self.data or self.last_line_size() <= len(self.headers)
+        assert not self.data or self.last_line_size() <= len(self.hdrs)
         return self.data
 
-    def add_cell(self, val: str, colspan: int = 1, **attrs) -> None:
+    def add_cell(self, val: Any, colspan: int = 1, **attrs) -> None:
         if not self.data:
             self.data.append([])
         self.data[-1].append(Cell(val, colspan=colspan, attrs=attrs))
-        assert self.last_line_size() <= len(self.headers)
+        assert self.last_line_size() <= len(self.hdrs)
 
 
 class Style(metaclass=abc.ABCMeta):

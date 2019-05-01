@@ -13,7 +13,7 @@ test_table_simple_res = """
 
 def test_table_simple():
     class Test(Table):
-        x = Column.ei(align=Align.right)
+        x = Column.ed(align=Align.right)
         y = Column.s()
 
     t = Test()
@@ -42,7 +42,7 @@ test_separator_res = """
 
 def test_separator():
     class Test(Table):
-        x = Column.ei(align=Align.right)
+        x = Column.ed(align=Align.right)
         y = Column.s(header='tt')
 
     t = Test()

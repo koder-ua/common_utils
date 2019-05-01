@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 import re
 from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass, field
 from ipaddress import IPv4Address, IPv4Network
-from typing import Optional, List, Set, Dict, Any, Callable, Tuple, Iterable
+from typing import Optional, List, Set, Dict, Any, Callable, Tuple, Iterable, Type, TypeVar
 
-from . import b2ssize, Array
+from . import b2ssize, Array, IntArithmeticMixin, FloatArithmeticMixin
 
 
 # ---------------  LSHW ------------------------------------------------------------------------------------------------
@@ -111,8 +113,11 @@ class NetAdapterAddr:
     is_routable: bool
 
 
+T = TypeVar('T')
+
+
 @dataclass
-class NetStats:
+class NetStats(IntArithmeticMixin):
     recv_bytes: int
     recv_packets: int
     rerrs: int
@@ -131,32 +136,12 @@ class NetStats:
     scompressed: int
 
     @classmethod
-    def empty(cls) -> 'NetStats':
-        assert cls is NetStats
-        return NetStats(*([0] * 16))
+    def empty(cls: Type[T]) -> T:
+        return cls(*([0] * 16))
 
     @property
     def total_err(self) -> int:
         return self.rerrs + self.rdrop + self.serrs + self.sdrop
-
-    def __iadd__(self, other: 'NetStats') -> 'NetStats':
-        self.recv_bytes += other.recv_bytes
-        self.recv_packets += other.recv_packets
-        self.rerrs += other.rerrs
-        self.rdrop += other.rdrop
-        self.rfifo += other.rfifo
-        self.rframe += other.rframe
-        self.rcompressed += other.rcompressed
-        self.rmulticast += other.rmulticast
-        self.send_bytes += other.send_bytes
-        self.send_packets += other.send_packets
-        self.serrs += other.serrs
-        self.sdrop += other.sdrop
-        self.sfifo += other.sfifo
-        self.scolls += other.scolls
-        self.scarrier += other.scarrier
-        self.scompressed += other.scompressed
-        return self
 
 
 @dataclass
@@ -231,7 +216,7 @@ class DFInfo:
 
 
 @dataclass
-class BlockUsage:
+class BlockUsage(FloatArithmeticMixin):
     read_bytes: float
     write_bytes: float
     total_bytes: float
@@ -255,17 +240,17 @@ class LogicBlockDev:
     mountpoint: Optional[str] = None
     fs: Optional[str] = None
     free_space: Optional[int] = None
-    parent: Optional[Callable[[], Optional['Disk']]] = None
-    children: Dict[str, 'LogicBlockDev'] = field(default_factory=dict)
+    parent: Optional[Callable[[], Optional[Disk]]] = None
+    children: Dict[str, LogicBlockDev] = field(default_factory=dict)
     label: Optional[str] = None
     d_usage: Optional[BlockUsage] = None
     partition_num: int = 0
 
     def __post_init__(self):
-        assert '/dev/' + self.name == self.dev_path
-        assert '/' not in self.name
+        assert '/dev/' + self.name == str(self.dev_path), f"name={self.name}, dev_path={self.dev_path}"
+        assert '/' not in self.name, f"name={self.name}"
         for key in self.children:
-            assert '/' not in key
+            assert '/' not in key, f"children={self.children}"
 
         for pattern in ["sd[a-z]+(\d+)", "hd[a-z]+(\d+)", "vd[a-z]+(\d+)", "nvme\d+n\d+p(\d+)"]:
             rr = re.match(pattern, self.name)
@@ -284,7 +269,7 @@ class Disk:
     rq_size: int
     phy_sec: int
     min_io: int
-    parent: Optional[Callable[[], Optional['Disk']]] = None
+    parent: Optional[Callable[[], Optional[Disk]]] = None
 
     # have to simulate LogicBlockDev inheritance, as mypy/pycharm works poorly with dataclass inheritance
     @property
@@ -296,7 +281,7 @@ class Disk:
         return self.logic_dev.dev_path
 
     @property
-    def children(self) -> Dict[str, 'LogicBlockDev']:
+    def children(self) -> Dict[str, LogicBlockDev]:
         return self.logic_dev.children
 
     @property
@@ -344,17 +329,17 @@ class AggNetStat:
     def no_budget(self) -> int:
         return self.no_budget_v.sum()  # type: ignore
 
-    def __add__(self, other: 'AggNetStat') -> 'AggNetStat':
+    def __add__(self, other: AggNetStat) -> AggNetStat:
         return self.__class__(self.raw + other.raw)
 
-    def __iadd__(self, other: 'AggNetStat') -> 'AggNetStat':
+    def __iadd__(self, other: AggNetStat) -> AggNetStat:
         self.raw += other.raw  # type: ignore
         return self
 
-    def __sub__(self, other: 'AggNetStat') -> 'AggNetStat':
+    def __sub__(self, other: AggNetStat) -> AggNetStat:
         return self.__class__(self.raw - other.raw)
 
-    def __isub__(self, other: 'AggNetStat') -> 'AggNetStat':
+    def __isub__(self, other: AggNetStat) -> AggNetStat:
         self.raw -= other.raw  # type: ignore
         return self
 

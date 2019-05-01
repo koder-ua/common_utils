@@ -13,26 +13,23 @@ from matplotlib import gridspec, ticker
 from matplotlib.ticker import FuncFormatter
 import matplotlib.pyplot as plt
 
+from . import unit_conversion_coef_f, float2str, NumVector1d
+from .selectored_storage import DataSource, TimeSeries, IImagesStorage
+from .inumeric import Numpy1d, Numpy2d
+
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     import seaborn
 
-from .common import float2str
-from .numeric import auto_edges
-from .types import array1d
-from .numeric_types import ndarray2d, ndarray1d
-from .statistic import (moving_average, moving_dev, hist_outliers_perc, find_ouliers_ts, approximate_curve,
-                        StatProps, NormStatProps)
-from .numeric_types import DataSource, TimeSeries
-from .units import unit_conversion_coef_f
-from .istorage import IImagesStorage
+from .numeric import (auto_edges, moving_average, moving_dev, hist_outliers_perc, find_ouliers_ts, approximate_curve,
+                      StatProps, NormStatProps)
 
 
 logger = logging.getLogger('cephlib')
 
 
 def hmap_from_2d(data: numpy.ndarray, max_xbins: int = 25,
-                 noval: Any = None) -> Tuple[ndarray1d, List[Tuple[int, int]]]:
+                 noval: Any = None) -> Tuple[Numpy1d, List[Tuple[int, int]]]:
     """
     :param data: 2D array of input data, [num_measurement * num_objects], each row contains single measurement for
                  every object
@@ -72,7 +69,7 @@ def process_heatmap_data(values: numpy.ndarray,
                          cut_percentile: Tuple[float, float] = (0.02, 0.98),
                          ybins: int = 20,
                          log_edges: bool = True,
-                         bins: ndarray1d = None) -> Tuple[ndarray2d, ndarray1d]:
+                         bins: Numpy1d = None) -> Tuple[Numpy2d, Numpy1d]:
     """
     Transform 1D input array of values into 2D array of histograms.
     All data from 'values' which belong to same region, provided by 'bin_ranges' array
@@ -99,7 +96,7 @@ def process_heatmap_data(values: numpy.ndarray,
 
     if bins is None:
         if log_edges:
-            bins = auto_edges(values, bins=ybins, round_base=None)
+            bins = auto_edges(values, bins=ybins)
         else:
             bins = numpy.linspace(mmin, mmax, ybins + 1)
     else:
@@ -108,7 +105,7 @@ def process_heatmap_data(values: numpy.ndarray,
     return numpy.array([numpy.histogram(src_line, bins)[0] for src_line in nvalues]), bins
 
 
-def plot_histo(ax: Axes, vals: array1d, bins: array1d = None, kde: bool = False,
+def plot_histo(ax: Axes, vals: NumVector1d, bins: NumVector1d = None, kde: bool = False,
                left: float = None, right: float = None,
                xlabel: str = None, y_ticks: bool = False):
     assert len(vals.shape) == 1
@@ -121,8 +118,8 @@ def plot_histo(ax: Axes, vals: array1d, bins: array1d = None, kde: bool = False,
         ax.set_xlim(left=left, right=right)
 
 
-def plot_hmap_with_histo(fig: Figure, data: ndarray1d, chunk_ranges: List[Tuple[float, float]],
-                         bins: ndarray1d = None, **args):
+def plot_hmap_with_histo(fig: Figure, data: Numpy1d, chunk_ranges: List[Tuple[float, float]],
+                         bins: Numpy1d = None, **args):
     assert len(data.shape) == 1
     heatmap, bins = process_heatmap_data(data, chunk_ranges, bins=bins)
     bins_populations, _ = numpy.histogram(data, bins)
@@ -130,9 +127,9 @@ def plot_hmap_with_histo(fig: Figure, data: ndarray1d, chunk_ranges: List[Tuple[
 
 
 def do_plot_hmap_with_histo(fig: Figure,
-                            heatmap: ndarray2d,
-                            bins_populations: ndarray1d,
-                            bins: ndarray1d,
+                            heatmap: Numpy2d,
+                            bins_populations: Numpy1d,
+                            bins: Numpy1d,
                             cmap: str = None,
                             cbar: bool = False,
                             avg_labels: bool = False,
@@ -171,7 +168,9 @@ def do_plot_hmap_with_histo(fig: Figure,
 
     return ax, ax2
 
+
 # --------------  PLOT HELPERS FUNCTIONS  ------------------------------------------------------------------------------
+
 
 def get_emb_image(fig: Figure, file_format: str, **opts) -> bytes:
     bio = BytesIO()
@@ -342,8 +341,8 @@ def plot_simple_bars(pp: PlotParams,
 
 
 @provide_plot(no_legend=True, grid=True)
-def plot_dots_with_regression(pp: PlotParams, x: array1d, y: array1d,
-                              x_approx: array1d = None, y_approx: array1d = None) -> None:
+def plot_dots_with_regression(pp: PlotParams, x: NumVector1d, y: NumVector1d,
+                              x_approx: NumVector1d = None, y_approx: NumVector1d = None) -> None:
     pp.ax.plot(x, y, '.')
     if x_approx is not None:
         pp.ax.plot(x_approx, y_approx, '--')
@@ -369,10 +368,6 @@ def plot_hmap_from_2d(pp: PlotParams, data2d: numpy.ndarray, xlabel: str, ylabel
 @provide_plot(eng=True, grid='y')
 def plot_v_over_time(pp: PlotParams, units: str, ts: TimeSeries,
                      plot_avg_dev: bool = True, plot_points: bool = True) -> None:
-    # convert time to ms
-    if len(ts.times) != len(ts.data):
-        import IPython
-        IPython.embed()
     assert ts.times.min() == ts.times[0]
     assert len(ts.times) == len(ts.data)
 
@@ -399,9 +394,9 @@ def plot_v_over_time(pp: PlotParams, units: str, ts: TimeSeries,
 
         if len(outliers) > 0:
             if outliers_4q_idxs is not None:
-                label = "{}Q < Outliers < {}Q".format(pp.style.outliers_q_nd, pp.style.outliers_hide_q_nd)
+                label = f"{pp.style.outliers_q_nd}Q < Outliers < {pp.style.outliers_hide_q_nd}Q"
             else:
-                label = "{}Q+ Outliers".format(pp.style.outliers_q_nd)
+                label = f"{pp.style.outliers_q_nd}Q+ Outliers"
             pp.ax.plot(outliers_times, outliers, pp.style.err_point_shape, color=pp.colors.err_color, label=label)
 
         if outliers_4q_idxs is not None:
@@ -421,13 +416,13 @@ def plot_v_over_time(pp: PlotParams, units: str, ts: TimeSeries,
             if len(hidden_outliers_times_hight) > 0:
                 pp.ax.plot(hidden_outliers_times_hight, [max_val] * len(hidden_outliers_times_hight),
                            pp.style.super_outlier_point_shape_up, color=pp.colors.super_outlier_color,
-                           label="{}Q+ hight Outliers".format(pp.style.outliers_hide_q_nd))
+                           label=f"{pp.style.outliers_hide_q_nd}Q+ hight Outliers")
 
             hidden_outliers_times_low = hidden_outliers_times[hidden_outliers < med]
             if len(hidden_outliers_times_low) > 0:
                 pp.ax.plot(hidden_outliers_times_low, [min_val] * len(hidden_outliers_times_low),
                            pp.style.super_outlier_point_shape_down, color=pp.colors.super_outlier_color,
-                           label="{}Q+ low Outliers".format(pp.style.outliers_hide_q_nd))
+                           label=f"{pp.style.outliers_hide_q_nd}Q+ low Outliers")
 
     has_negative_dev = False
     plus_minus = "\xb1"
@@ -449,10 +444,10 @@ def plot_v_over_time(pp: PlotParams, units: str, ts: TimeSeries,
         hight_vals_dev = avg_vals + dev_vals * pp.style.dev_range_x
         if (pp.style.dev_range_x - int(pp.style.dev_range_x)) < 0.01:
             pp.ax.plot(avg_times, low_vals_dev, c=pp.colors.suppl_color2,
-                       label="{}{}*stdev".format(plus_minus, int(pp.style.dev_range_x)))
+                       label=f"{plus_minus}{int(pp.style.dev_range_x)}*stdev")
         else:
             pp.ax.plot(avg_times, low_vals_dev, c=pp.colors.suppl_color2,
-                       label="{}{}*stdev".format(plus_minus, pp.style.dev_range_x))
+                       label=f"{plus_minus}{pp.style.dev_range_x}*stdev")
         pp.ax.plot(avg_times, hight_vals_dev, c=pp.colors.suppl_color2)
         has_negative_dev = low_vals_dev.min() < 0
 
@@ -460,7 +455,7 @@ def plot_v_over_time(pp: PlotParams, units: str, ts: TimeSeries,
     pp.ax.set_xlabel("Time, seconds from test begin")
 
     if plot_avg_dev:
-        pp.ax.set_ylabel("{}. Average and {}stddev over {} points".format(units, plus_minus, pp.style.avg_range))
+        pp.ax.set_ylabel(f"{units}. Average and {plus_minus}stddev over {pp.style.avg_range} points")
     else:
         pp.ax.set_ylabel(units)
 
@@ -523,7 +518,7 @@ def plot_lat_over_time(pp: PlotParams, ts: TimeSeries) -> None:
         pp.ax.boxplot(agg_data, 0, '', positions=positions, labels=labels, widths=step / 4)
 
     pp.ax.set_xlim(min(times), max(times))
-    pp.ax.set_xlabel("Time, seconds from test begin, sampled for ~{} seconds".format(int(step)))
+    pp.ax.set_xlabel(f"Time, seconds from test begin, sampled for ~{int(step)} seconds")
     pp.fig.subplots_adjust(right=pp.style.subplot_adjust_r)
 
 
@@ -556,7 +551,7 @@ def plot_histo_heatmap(pp: PlotParams, ts: TimeSeries, ylabel: str, xlabel: str 
     if agg_idx >= 2:
         idxs = list(map(int, numpy.round(numpy.arange(0, len(orig_data) + 1, agg_idx))))
         assert len(idxs) > 1
-        data = numpy.empty([len(idxs) - 1, orig_data.shape[1]], dtype=numpy.float32)  # type: List[numpy.ndarray]
+        data: List[numpy.ndarray] = numpy.empty([len(idxs) - 1, orig_data.shape[1]], dtype=numpy.float32)
         for idx, (sidx, eidx) in enumerate(zip(idxs[:-1], idxs[1:])):
             data[idx] = orig_data[sidx:eidx,:].sum(axis=0) / (eidx - sidx)
     else:
