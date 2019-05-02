@@ -8,7 +8,7 @@ from .storage import make_storage, Storage, TypedStorage, Storage, AttredStorage
 from .xmlbuilder import XMLBuilder, XMLNode, RawContent, htag, AnyXML, root_xml_node
 from .table import Column, Table, renter_to_text, Align, SimpleTable
 from .html_utils import ok, fail, unknown, href, table_to_html
-from .json_utils import (JsonBase, get_converter, register_from_json, js, dict_from_json, JSONDeserializationError)
+from .conv_utils import ConvBase, convertable, converter_from_dict, field, DeserializationError
 from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 from .node_info_classes import (Host, ClusterNetData, NetStats, BlockUsage, IPANetDevInfo, NetStats, Disk, DiskType,
                                 LogicBlockDev, BlockDevType, HWModel, DFInfo, LSHWDiskInfo, LSHWInfo, LSHWNetInfo,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import socket
 import asyncio
 import ipaddress
@@ -439,7 +441,7 @@ async def get_sshable_hosts(addresses: Iterable[str], user: str) -> List[str]:
 #     ssh_creds: ConnCreds
 #     roles: Set[str]
 #     hostname: Optional[str] = None
-#     params: Dict[str, Any] = field(default_factory=dict)
+#     params: Dict[str, Any] = field(default_factory_attr=dict)
 #     hw_info: Optional[HWInfo] = None
 #     sw_info: Optional[SWInfo] = None
 #     os_vm_id: Optional[int] = None

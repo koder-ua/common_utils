@@ -1,6 +1,8 @@
 """
 This module contains interfaces for storage classes
 """
+from __future__ import annotations
+
 import array
 import os
 import re
