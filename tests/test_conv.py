@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Union
 
 import pytest
 
-from koder_utils import ConvBase, field, DeserializationError, convertable
+from koder_utils import ConvBase, field, ConversionError, ToInt, ToStr
 
 
 def test_simple():
@@ -15,7 +15,7 @@ def test_simple():
 
     data = {'x': 1, 'y': 2.1, 'z': "3", 'a': False}
 
-    d = D.from_dict(data)
+    d = D.convert(data)
 
     assert d.x == data['x']
     assert d.y == data['y']
@@ -33,7 +33,7 @@ def test_dataclass():
 
     data = {'x': 1, 'y': 2.1, 'z': "3", 'a': False}
 
-    d = D.from_dict(data)
+    d = D.convert(data)
 
     assert d.x == data['x']
     assert d.y == data['y']
@@ -53,7 +53,7 @@ def test_embedded():
 
     data = {'x': 1, 'y': 2, 'z': "3", 'e': {'t': True, 'f': 2.1}}
 
-    d = D.from_dict(data)
+    d = D.convert(data)
 
     assert d.x == data['x']
     assert d.y == data['y']
@@ -74,7 +74,7 @@ def test_containers():
 
     data = {'x': [1, 2, 3], 'y': {"d": 2}, 'z': "3", 'e': [{'t': True, 'f': 2}, {'t': False, 'f': -5}]}
 
-    d = D.from_dict(data)
+    d = D.convert(data)
 
     assert d.x == data['x']
     assert d.y == data['y']
@@ -87,22 +87,22 @@ def test_containers():
 
 def test_strict():
     class D(ConvBase):
-        x: int
+        x: ToInt
 
     class DStrict(ConvBase):
-        x: int = field(strict=True)
+        x: int
 
-    assert D.from_dict({'x': 1.1}).x == 1
-    assert D.from_dict({'x': "1"}).x == 1
-
-    with pytest.raises(ValueError):
-        DStrict.from_dict({'x': 1.1})
+    assert D.convert({'x': 1.1}).x == 1
+    assert D.convert({'x': "1"}).x == 1
 
     with pytest.raises(ValueError):
-        DStrict.from_dict({'x': "1"})
+        DStrict.convert({'x': 1.1})
 
-    assert D.from_dict({'x': 1}).x == 1
-    assert DStrict.from_dict({'x': 1}).x == 1
+    with pytest.raises(ValueError):
+        DStrict.convert({'x': "1"})
+
+    assert D.convert({'x': 1}).x == 1
+    assert DStrict.convert({'x': 1}).x == 1
 
 
 def test_no_auto():
@@ -110,7 +110,7 @@ def test_no_auto():
         x: int
         y: str = field(noauto=True)
 
-    d = D.from_dict({'x': 1, 'y': 'u'})
+    d = D.convert({'x': 1, 'y': 'u'})
     assert d.x == 1
     assert d.y is D.y
 
@@ -125,16 +125,38 @@ def test_default():
         x: int
         y: str = field(default="111")
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "2"})
+    with pytest.raises(ConversionError):
+        D.convert({'y': "2"})
 
-    d = D.from_dict({'x': 1, 'y': "2"})
+    d = D.convert({'x': 1, 'y': "2"})
     assert d.x == 1
     assert d.y == "2"
 
-    d = D.from_dict({'x': 1})
+    d = D.convert({'x': 1})
     assert d.x == 1
     assert d.y == "111"
+
+    class D2(ConvBase):
+        x: int
+        y: str = field(noauto=True, default="222")
+
+    d2 = D2.convert({'x': 1})
+    assert d2.x == 1
+    assert d2.y == "222"
+
+    class D3(ConvBase):
+        x: int
+        z: str
+        y: str = field(noauto=True, default_factory=lambda: "333")
+
+    d3 = D3.convert({'x': 3, 'z': 'rrr'})
+    assert d3.x == 3
+    assert d3.z == 'rrr'
+    assert d3.y == "333"
+
+    with pytest.raises(AssertionError):
+        class D4(ConvBase):
+            y: str = field(default="2", default_factory=lambda: "333")
 
 
 def test_from_dict():
@@ -142,14 +164,14 @@ def test_from_dict():
         x: int
         y: str = field(default="111")
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "2"})
+    with pytest.raises(ConversionError):
+        D.convert({'y': "2"})
 
-    d = D.from_dict({'x': 1, 'y': "2"})
+    d = D.convert({'x': 1, 'y': "2"})
     assert d.x == 1
     assert d.y == "2"
 
-    d = D.from_dict({'x': 1})
+    d = D.convert({'x': 1})
     assert d.x == 1
     assert d.y == "111"
 
@@ -159,7 +181,7 @@ def test_from_json():
         x: int
         y: str = field(default="111")
 
-    with pytest.raises(DeserializationError):
+    with pytest.raises(ConversionError):
         D.from_json('{"y": "2"}')
 
     d = D.from_json('{"x": 1, "y": "2"}')
@@ -176,61 +198,44 @@ def test_optional():
         x: Optional[int]
         y: str
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "a", 'x': 'fff'})
+    with pytest.raises(ConversionError):
+        D.convert({'y': "a", 'x': 'fff'})
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "a"})
+    with pytest.raises(ConversionError):
+        D.convert({'y': "a"})
 
-    d = D.from_dict({'y': "a", 'x': 1})
+    d = D.convert({'y': "a", 'x': 1})
     assert d.x == 1
     assert d.y == "a"
 
-    d = D.from_dict({'y': "a", 'x': None})
+    d = D.convert({'y': "a", 'x': None})
     assert d.x is None
     assert d.y == "a"
 
 
 def test_union():
     class D(ConvBase):
+        x: Union[ToInt, ToStr]
+        y: str
+
+    with pytest.raises(ConversionError):
+        D.convert({'y': "a", 'x': '1'})
+
+    with pytest.raises(ConversionError):
+        D.convert({'y': "a", 'x': 1})
+
+    class D(ConvBase):
         x: Union[int, str]
         y: str
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "a", 'x': '1'})
-
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "a", 'x': 1})
-
-    class D(ConvBase):
-        x: Union[int, str] = field(strict=True)
-        y: str
-
-    d = D.from_dict({'y': "a", 'x': 1})
+    d = D.convert({'y': "a", 'x': 1})
     assert d.x == 1
     assert d.y == "a"
 
-    d = D.from_dict({'y': "a", 'x': "1"})
+    d = D.convert({'y': "a", 'x': "1"})
     assert d.x == "1"
     assert d.y == "a"
 
-    with pytest.raises(DeserializationError):
-        D.from_dict({'y': "a", 'x': [1]})
+    with pytest.raises(ConversionError):
+        D.convert({'y': "a", 'x': [1]})
 
-
-def test_decorator():
-    @convertable
-    class D:
-        x: int
-        y: str = field(default="111")
-
-    with pytest.raises(DeserializationError):
-        D.from_json('{"y": "2"}')
-
-    d = D.from_json('{"x": 1, "y": "2"}')
-    assert d.x == 1
-    assert d.y == "2"
-
-    d = D.from_json('{"x": 1}')
-    assert d.x == 1
-    assert d.y == "111"

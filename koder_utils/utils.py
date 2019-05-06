@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 from collections import Counter
 from typing import (Iterable, Iterator, Any, Callable, TypeVar, Coroutine, Tuple, List, Union, BinaryIO,
-                    TextIO, Optional, cast, Dict, Mapping, Sequence)
+                    TextIO, Optional, cast, Dict, Mapping, Sequence, AsyncIterator)
 
 from . import run
 
@@ -343,3 +343,13 @@ def group_by(items: Iterable[Dict[str, Any]], mutable_keys=Union[str, Tuple[str,
         grouped.setdefault(group_idx, []).append(idx)
 
     return grouped.values()
+
+
+async def async_wait_cycle(timeout: float) -> AsyncIterator[float]:
+    ptime = time.time()
+    while True:
+        yield ptime
+        wtime = ptime + timeout - time.time()
+        if wtime >= 0:
+            await asyncio.sleep(wtime)
+        ptime = time.time()
