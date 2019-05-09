@@ -85,15 +85,18 @@ def test_containers():
         assert d.e[idx].f == data['e'][idx]['f']
 
 
-def test_strict():
+def test_strictness():
     class D(ConvBase):
         x: ToInt
 
     class DStrict(ConvBase):
         x: int
 
-    assert D.convert({'x': 1.1}).x == 1
+    with pytest.raises(ValueError):
+        assert D.convert({'x': 1.1}).x == 1
+
     assert D.convert({'x': "1"}).x == 1
+    assert D.convert({'x': 1}).x == 1
 
     with pytest.raises(ValueError):
         DStrict.convert({'x': 1.1})
@@ -117,7 +120,7 @@ def test_no_auto():
     with pytest.raises(ValueError):
         class D2(ConvBase):
             x: int
-            y: str = field(noauto=True, default="t")
+            y: str = field(noauto=True, key="12")
 
 
 def test_default():
@@ -136,6 +139,7 @@ def test_default():
     assert d.x == 1
     assert d.y == "111"
 
+    @dataclass
     class D2(ConvBase):
         x: int
         y: str = field(noauto=True, default="222")

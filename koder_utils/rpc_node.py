@@ -225,6 +225,7 @@ class LocalHost(IAsyncNode):
 
 
 ConnTp = TypeVar('ConnTp')
+Res = TypeVar('Res')
 
 
 class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
@@ -261,6 +262,7 @@ class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
 
     async def release_conn(self, conn_addr: str, conn: ConnTp) -> None:
         assert self.opened, "Pool is not opened"
+        assert conn not in self.free_conn[conn_addr], f"Double release for conn {conn} for node {conn_addr}"
         self.free_conn[conn_addr].append(conn)
 
         async with self.conn_freed[conn_addr]:
@@ -281,7 +283,8 @@ class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
     async def disconnect(self) -> None:
         assert self.opened, "Pool is not opened"
         for addr, conns in self.free_conn.items():
-            assert len(conns) == self.conn_per_node[addr]
+            not_released = self.conn_per_node[addr] - len(conns)
+            assert not_released == 0, f"{not_released} conn for address {addr} is not released, {conns}"
             for conn in conns:
                 await self.rpc_disconnect(conn)
             self.conn_per_node[addr] = 0
@@ -297,6 +300,21 @@ class BaseConnectionPool(Generic[ConnTp], ICloseOnExit):
             yield conn
         finally:
             await self.release_conn(conn_addr, conn)
+
+    async def amap(self,
+                   func: Callable[..., Coroutine[Any, Any, Res]],
+                   addrs: Iterable[str],
+                   *args,
+                   **kwargs) -> AsyncIterable[Tuple[str, Res]]:
+
+        async def cl(addr: str) -> Tuple[str, Res]:
+            async with self.connection(addr) as conn:
+                return await func(addr, conn, *args, **kwargs)
+
+        for addr, res_or_exc in zip(addrs, await asyncio.gather(*map(cl, addrs), return_exceptions=True)):
+            if isinstance(res_or_exc, Exception):
+                raise res_or_exc
+            yield addr, res_or_exc
 
 
 ResTp = TypeVar('ResTp')
