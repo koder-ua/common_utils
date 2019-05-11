@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import bisect
 import os
+import random
 import re
 import math
 import stat
@@ -15,7 +17,9 @@ import subprocess
 from pathlib import Path
 from collections import Counter
 from typing import (Iterable, Iterator, Any, Callable, TypeVar, Coroutine, Tuple, List, Union, BinaryIO,
-                    TextIO, Optional, cast, Dict, Mapping, Sequence, AsyncIterator)
+                    TextIO, Optional, cast, Dict, Mapping, Sequence, AsyncIterator, Generic)
+
+from dataclasses import dataclass, field
 
 from . import run
 
@@ -353,3 +357,36 @@ async def async_wait_cycle(timeout: float) -> AsyncIterator[float]:
         if wtime >= 0:
             await asyncio.sleep(wtime)
         ptime = time.time()
+
+
+def get_discretizer(output_max_val: int, step_coef: float) -> Tuple[Callable[[float], int], Callable[[int], int]]:
+    val = 0
+    table: List[int] = [val]
+    for _ in range(output_max_val):
+        val = max(round(step_coef * val), val + 1)
+        table.append(val)
+
+    def discretize(vl: float) -> int:
+        return min(output_max_val, bisect.bisect_left(table, round(vl)))
+
+    return discretize, table.__getitem__
+
+
+@dataclass
+class SamplingList(Generic[T]):
+    count: int
+    total_processed_count: int = field(init=False, default=0)
+    skip: int = field(init=False, default=0)
+    curr_counter: int = field(init=False, default=0)
+    samples: List[T] = field(init=False, default_factory=list)
+    pretenders: List[T] = field(init=False, default_factory=list)
+
+    def add(self, obj: T) -> None:
+        self.total_processed_count += 1
+        if self.curr_counter == self.skip:
+            self.pretenders.append(obj)
+            self.curr_counter = 0
+            if len(self.pretenders) == self.count:
+                self.samples = random.sample(self.samples + self.pretenders, self.count)
+        else:
+            self.curr_counter += 1

@@ -309,8 +309,7 @@ class ConvBase:
         # if dataclass decorator already applied
         fields_dct = asdict(cls) if is_dataclass(cls) else cls.__dict__
 
-        annotation = get_type_hints(cls, localns=cls.__dict__, globalns=None)
-        for name, tp in annotation.items():
+        for name, tp in get_type_hints(cls, localns=cls.__dict__, globalns=None).items():
             if name.startswith("_"):
                 continue
 
