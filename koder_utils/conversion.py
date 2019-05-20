@@ -81,6 +81,14 @@ class ToInt(int):
         return int(vl)
 
 
+class ToFloat(int):
+    def __new__(cls, vl: Union[str, int, float]) -> float:
+        if not isinstance(vl, (int, str, float)):
+            raise TypeError(f"{cls.__name__} expected int, float or string as input parameter, get " +
+                            f"{vl!r} of type {vl.__class__.__name__}")
+        return float(vl)
+
+
 class ToStr(int):
     def __new__(cls, vl: Any) -> str:
         return str(vl)
@@ -91,6 +99,7 @@ _CONVERTERS: Dict[Type, Callable[[Any], Any]] = {
     int: base_converter(int),
     str: base_converter(str),
     float: base_converter2(float, int),
+    ToFloat: ToFloat,
     bool: base_converter(bool),
     Any: lambda x: x,
     ToInt: ToInt,
@@ -185,7 +194,7 @@ def get_union_converter(t) -> Callable[[Any], Any]:
                     val = val2
 
             if val is _NotAllowed:
-                raise ValueError(f"Can't convert to union field - none of types match")
+                raise ValueError(f"Can't convert to union field {v!r} - none of types match")
 
             return val
 

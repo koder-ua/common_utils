@@ -9,7 +9,7 @@ from .struct_serialize import (pack_structs, unpack_structs, int8, int16, int32,
 from .xmlbuilder import XMLBuilder, XMLNode, RawContent, htag, AnyXML, root_xml_node
 from .table import Column, Table, renter_to_text, Align, SimpleTable
 from .html_utils import ok, fail, unknown, href, table_to_html
-from .conversion import ConvBase, field, ConversionError, register_converter, ToInt, ToStr
+from .conversion import ConvBase, field, ConversionError, register_converter, ToInt, ToStr, ToFloat
 from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 from .node_info_classes import (Host, ClusterNetData, NetStats, BlockUsage, IPANetDevInfo, NetStats, Disk, DiskType,
                                 LogicBlockDev, BlockDevType, HWModel, DFInfo, LSHWDiskInfo, LSHWInfo, LSHWNetInfo,
