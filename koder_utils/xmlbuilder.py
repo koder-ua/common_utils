@@ -182,7 +182,7 @@ class XMLNode(IXMLBuilder):
                 else:
                     childs.append(prefix + str(ch))
 
-            return f"{open}>\n{childs}\n{prefix}{close}"
+            return f"{open}>\n{''.join(childs)}\n{prefix}{close}"
 
         return f"{open} />"
 

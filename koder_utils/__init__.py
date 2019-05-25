@@ -6,19 +6,18 @@ from .istorage import IStorable, ISimpleStorage, ISerializer, _Raise, ObjClass, 
 from .storage import make_storage, Storage, TypedStorage, Storage, AttredStorage
 from .struct_serialize import (pack_structs, unpack_structs, int8, int16, int32, int64, uint8, uint16, uint32, uint64,
                                categorical, pack_cat_list, unpack_cat_list, pack_bytes_list, unpack_bytes_list)
+from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
+from .utils import (AnyPath, Timeout, AttredDict, RAttredDict, flatten, find, flatmap, async_map, ignore_all, async_run,
+                    make_secure, make_cert_and_key, read_inventory, open_to_append, open_for_append_or_create,
+                    which, tmpnam, group_by, async_wait_cycle, get_discretizer, partition, partition_by_len)
 from .xmlbuilder import XMLBuilder, XMLNode, RawContent, htag, AnyXML, root_xml_node
 from .table import Column, Table, renter_to_text, Align, SimpleTable
 from .html_utils import ok, fail, unknown, href, table_to_html
 from .conversion import ConvBase, field, ConversionError, register_converter, ToInt, ToStr, ToFloat
-from .cli import run_proc_timeout, start_proc, run, run_stdout, CMDResult, CmdType
 from .node_info_classes import (Host, ClusterNetData, NetStats, BlockUsage, IPANetDevInfo, NetStats, Disk, DiskType,
                                 LogicBlockDev, BlockDevType, HWModel, DFInfo, LSHWDiskInfo, LSHWInfo, LSHWNetInfo,
                                 LSHWCPUInfo, ProcInfo, OSRelease, NetworkBond, NetworkAdapter, NetAdapterAddr,
                                 AggNetStat, DiskType)
-
-from .utils import (AnyPath, Timeout, AttredDict, RAttredDict, flatten, find, flatmap, async_map, ignore_all, async_run,
-                    make_secure, make_cert_and_key, read_inventory, open_to_append, open_for_append_or_create,
-                    which, tmpnam, group_by, async_wait_cycle, get_discretizer)
 
 from .rpc_node import ISyncNode, ISimpleAsyncNode, IAsyncNode, LocalHost, BaseConnectionPool, rpc_map, ICloseOnExit
 

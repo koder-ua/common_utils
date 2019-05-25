@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sys
-from typing import TypeVar, Iterator, Tuple, Union, List, Iterable
+from typing import TypeVar, Iterator, Tuple, Iterable, List, Union
 
-from . import Align, XMLBuilder, Table, XMLNode, SimpleTable, RawContent, AnyXML, root_xml_node
-from koder_utils.table import Separator
+from . import Align, XMLBuilder, XMLNode, RawContent, AnyXML, root_xml_node
+from .table import Separator, ITable, Ok, Fail
 
 
 assert sys.version_info >= (3, 6), "This python module must run on 3.6, it requires buitin dict ordering"
@@ -66,13 +66,14 @@ HTML_ALIGN_MAPPING = {
 }
 
 
-def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False,
+def table_to_html(t: ITable, hide_unused: bool = False,
                   classes: Iterable[str] = None) -> XMLNode:
     # doc = XMLBuilder("table", **{"class": "table table-bordered table-striped table-condensed table-hover",
     #                              "style": "width: auto;"})
 
     content = t.content(hide_unused=hide_unused)
     headers = t.headers(hide_unused=hide_unused)
+    column_width = t.columns_width(hide_unused=hide_unused)
     classes = [] if not classes else list(classes)
     for name in dir(t):
         if name.startswith("__html_") and name.endswith("__"):
@@ -88,11 +89,16 @@ def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False,
 
         with doc.thead:
             with doc.tr:
-                for header in headers:
+                for header, width in zip(headers, column_width):
+                    attrs = {}
+
                     if header.align is not Align.default:
-                        doc.th(RawContent(header.header), align=HTML_ALIGN_MAPPING[header.align])
-                    else:
-                        doc.th(RawContent(header.header))
+                        attrs['align'] = HTML_ALIGN_MAPPING[header.align]
+
+                    if width:
+                        attrs['width'] = f"{width}%"
+
+                    doc.th(RawContent(header.header), **attrs)
 
         with doc.tbody:
             for row in content:
@@ -107,7 +113,15 @@ def table_to_html(t: Union[Table, SimpleTable], hide_unused: bool = False,
                         if cell.align is not Align.default:
                             args['align'] = HTML_ALIGN_MAPPING[cell.align]
 
-                        # need to handle RawContent correctly
-                        doc.td(RawContent(cell.data), **args)
+                        if isinstance(cell.data, Ok):
+                            v = ok(cell.data.value)
+                        elif isinstance(cell.data, Fail):
+                            v = fail(cell.data.value)
+                        else:
+                            v = RawContent(cell.data)
+
+                        doc.td(v, **args)
 
     return root_xml_node(doc)
+
+

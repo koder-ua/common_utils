@@ -3,10 +3,10 @@ from __future__ import annotations
 import abc
 import weakref
 from enum import Enum
-from typing import Any, Union, Optional, Callable, Iterable, Tuple, List, Dict, Type, Set
+from typing import Any, Union, Optional, Callable, Iterable, Tuple, List, Dict, Type, Set, Sequence
 from dataclasses import dataclass, field
 
-from . import b2ssize, b2ssize_10, seconds_to_str, RawContent
+from . import b2ssize, b2ssize_10, seconds_to_str, RawContent, partition_by_len
 
 
 class Align(Enum):
@@ -44,7 +44,7 @@ class Field:
     help: Optional[str] = None
     attrs: Dict[str, Any] = field(default_factory=dict)
     attr_name: Optional[str] = None
-    chars_per_line: Optional[int] = None
+    width: int = None
 
     def __post_init__(self):
         assert self.tp is not tuple
@@ -94,10 +94,15 @@ class Column:
         return Field((int, float), header, converter=seconds_to_str, **extra)
 
     @staticmethod
-    def list(header: str = None, delim: str = ' ', **extra) -> Field:
+    def list(header: str = None, *, delim: str = ' ', chars_per_line: int = None, **extra) -> Field:
 
         def joiner(x: Iterable[Any]) -> str:
-            return delim.join(map(str, x))
+            if chars_per_line is None:
+                return delim.join(map(str, x))
+            else:
+                lines = [delim.join(map(str, line))
+                         for line in partition_by_len(x, chars_per_line=chars_per_line, delimiter_len=len(delim))]
+                return "\n".join(lines)
 
         return Field(list, header, converter=joiner, dont_sort=True, **extra)
 
@@ -125,9 +130,24 @@ class _NotUsed:
     pass
 
 
-class Table:
-    RowTp = Union[Type[Separator], List[Union[Cell, Type[_NotUsed]]]]
+class ITable(metaclass=abc.ABCMeta):
     RowReadyTp = Union[Type[Separator], List[Cell]]
+    RowTp = Union[Type[Separator], List[Union[Cell, Type[_NotUsed]]]]
+
+    @abc.abstractmethod
+    def headers(self, hide_unused: bool = False) -> List[Field]:
+        ...
+
+    @abc.abstractmethod
+    def columns_width(self, hide_unused: bool = False) -> List[Optional[int]]:
+        ...
+
+    @abc.abstractmethod
+    def content(self, hide_unused: bool = False) -> List[RowReadyTp]:
+        ...
+
+
+class Table(ITable):
 
     def __init__(self) -> None:
         self.fields = [fld for _, fld in self.all_fields()]
@@ -165,7 +185,7 @@ class Table:
             attrs = {}
 
         if fld.tp:
-            assert isinstance(val, fld.tp) or (fld.allow_none and val is None), \
+            assert isinstance(val, (fld.tp, RawContent)) or (fld.allow_none and val is None), \
                 f"Field {fld.attr_name} requires type {fld.tp}{' or None' if fld.allow_none else ''} " + \
                 f"but get {val!r} of type {type(val)}"
 
@@ -186,6 +206,9 @@ class Table:
     def headers(self, hide_unused: bool = False) -> List[Field]:
         return self.get_used_columns() if hide_unused else self.fields
 
+    def columns_width(self, hide_unused: bool = False) -> List[Optional[int]]:
+        return [f.width for f in self.headers(hide_unused=hide_unused)]
+
     def add_row(self, *vals) -> None:
         self.rows.append([self.prepare_field(val, fld=fld) for val, fld in zip(vals, self.fields)])
 
@@ -198,7 +221,7 @@ class Table:
     def add_separator(self):
         self.rows.append(Separator)
 
-    def content(self, hide_unused: bool = False) -> List[RowReadyTp]:
+    def content(self, hide_unused: bool = False) -> List[ITable.RowReadyTp]:
         active_fields = self.get_used_columns() if hide_unused else self.fields
         active_attrs = {fld.attr_name for fld in active_fields}
 
@@ -230,10 +253,17 @@ class Row:
         self._target__[table.fields_names.index(name)] = table.prepare_field(val, name=name)
 
 
-class SimpleTable:
-    def __init__(self, *headers: str) -> None:
+class SimpleTable(ITable):
+    def __init__(self, *headers: str, c_width: Sequence[int] = None) -> None:
         self.hdrs = [Field(tp=str, header=header, attr_name=header) for header in headers]
         self.data: List[List[Cell]] = []
+        self.align: List[Align] = [Align.center] * len(self.hdrs)
+
+        if c_width:
+            assert sum(c_width) == 100
+            self.c_width = list(c_width)
+        else:
+            self.c_width = [None] * len(self.hdrs)
 
     def last_line_size(self) -> int:
         if not self.data:
@@ -244,10 +274,11 @@ class SimpleTable:
         assert not self.data or self.last_line_size() in (len(self.hdrs), 0), \
             f"self.last_line_size()={self.last_line_size()} != len(self.headers)={len(self.hdrs)}"
         assert len(cells) == len(self.hdrs), f"len(cells)={len(cells)} != len(self.headers)={len(self.hdrs)}"
+        row = [Cell(vl, align=align) for vl, align in zip(cells, self.align)]
         if self.data and len(self.data[-1]) == 0:
-            self.data[-1] = [Cell(vl) for vl in cells]
+            self.data[-1] = row
         else:
-            self.data.append([Cell(vl) for vl in cells])
+            self.data.append(row)
         self.next_row()
 
     def next_row(self) -> None:
@@ -257,14 +288,22 @@ class SimpleTable:
     def headers(self, hide_unused: bool = False) -> List[Field]:
         return self.hdrs
 
-    def content(self, hide_unused: bool = False) -> List[Table.RowReadyTp]:
+    def columns_width(self, hide_unused: bool = False) -> List[Optional[int]]:
+        return self.c_width
+
+    def content(self, hide_unused: bool = False) -> List[ITable.RowReadyTp]:
         assert not self.data or self.last_line_size() <= len(self.hdrs)
+        if not self.data:
+            return []
+        if not self.data[-1]:
+            return self.data[:-1]
         return self.data
 
     def add_cell(self, val: Any, colspan: int = 1, **attrs) -> None:
         if not self.data:
             self.data.append([])
-        self.data[-1].append(Cell(val, colspan=colspan, attrs=attrs))
+        align = attrs.get('align', self.align[len(self.data[-1])])
+        self.data[-1].append(Cell(val, colspan=colspan, attrs=attrs, align=align))
         assert self.last_line_size() <= len(self.hdrs)
 
 
@@ -388,7 +427,7 @@ def renter_to_text(tbl: Union[Table, SimpleTable],
 
     headers = [header.header for header in tbl.headers(hide_unused=hide_unused)]
     for row in data:
-        assert row is Separator or len(row) == len(headers)
+        assert row is Separator or len(row) == len(headers), row
 
     col_widths: List[Set[int]] = [{len(header)} for header in headers]
 
@@ -397,8 +436,8 @@ def renter_to_text(tbl: Union[Table, SimpleTable],
         if row is not Separator:
             assert len(row) == len(col_widths)
             for cell, cw in zip(row, col_widths):
-                assert cell.colspan == 1
-                assert isinstance(cell.data, str)
+                assert cell.colspan == 1, cell.colspan
+                assert isinstance(cell.data, str), cell.data
                 cw.add(len(cell.data))
 
     col_width = [max(w) for w in col_widths]
